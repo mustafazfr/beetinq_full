@@ -1,0 +1,27 @@
+name: dchs_flutter_beacon
+description: "Flutter plugin for scanning and transmit as beacon (iBeacon) on Android and iOS."
+version: 0.6.6
+homepage: https://github.com/dariocavada/dchs_flutter_beacon
+
+environment:
+  sdk: ^3.7.0
+  flutter: ">=3.7.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  plugin_platform_interface: ^2.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.cavadalab.dchs_flutter_beacon
+        pluginClass: DchsFlutterBeaconPlugin
+      ios:
+        pluginClass: DchsFlutterBeaconPlugin

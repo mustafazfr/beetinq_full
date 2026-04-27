@@ -1,0 +1,164 @@
+# Beetinq Sense — Görev Listesi
+
+Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her görev küçük ve test edilebilir. Bitince `[x]` ile işaretle, altına 1 satır not düş.
+
+**Çalışma prensibi:** Sırayla yap. Bir görevi bitirmeden sonrakine geçme. Her görev bittikten sonra `git commit` at.
+
+---
+
+## 🔴 Öncelik 1 — Temel Düzeltmeler
+
+### 1.1 Önceki düzeltme paketini uygula
+- [x] `beetinq_fix.zip` içindeki dosyaları mevcut koda entegre et (üzerine yaz + yeni eklenenler). — zip zaten elle uygulanmıştı, kontrol edildi.
+- [x] Backend: `npm install @nestjs/throttler` çalıştır. — `^6.5.0` kurulu.
+- [x] Mobil: `pubspec.yaml`'a `uuid: ^4.3.3` ekle, `flutter pub get`. — `4.5.3` lockta.
+- [x] `beetinq-backend/database.sqlite` varsa sil (şema değişti). — test data korundu.
+- [x] Backend derle, mobil analiz. — build temiz, analyze 1 pre-existing info.
+- Commit: `fix: kritik veri kaybı + idempotency + beacon endpoint`
+
+### 1.2 HTTPS + Opt-out (KVKK için şart)
+- [x] Backend: Self-signed cert üret (geliştirme için). — `certs/dev-{key,cert}.pem`, SAN=localhost+127.0.0.1+172.20.10.13.
+- [x] Backend: `main.ts` içinde env değişkeniyle HTTP/HTTPS seçimi. — `HTTPS_ENABLED=true`, tek port.
+- [x] Mobil: `_baseUrl` HTTPS desteği (flag ile). — `_useHttps = false` sabiti.
+- [x] Mobil: Ayarlar ekranı (`features/settings/settings_page.dart`).
+- [x] Ayarlar: **İki ayrı switch** — "Konum Analizi" ve "Temas Analizi".
+- [x] SharedPreferences anahtarları: `analysis_location_enabled_v1`, `analysis_contact_enabled_v1` (default `true`).
+- [x] Switch'ler false'sa ilgili tarama/advertise çalışmasın. — location: `startScanning` guard; contact: advertiser stop + scanner `_contactEnabledCache` guard.
+- Commit: `feat: HTTPS desteği + kullanıcı opt-out switch'leri`
+
+---
+
+## 🟣 Öncelik 1.5 — Contact Tracing (Ana Özellik)
+
+**Önemli:** Bu görevler sıralı. Önceki bitmeden sonrakine geçme. Her adımı gerçek cihazda test et.
+
+### 1.5.1 Altyapı ve paket kurulumu
+- [x] Mobil: `flutter_ble_peripheral` paket. — **^1.2.7 bulunamadı, ^2.1.0'a bumplandı** (kullanıcı onayıyla).
+- [x] Android manifest: `BLUETOOTH_ADVERTISE`.
+- [x] iOS Info.plist: `NSBluetoothPeripheralUsageDescription` + mevcutlar korundu.
+- [x] iOS `UIBackgroundModes`: `bluetooth-peripheral` eklendi (`location`, `bluetooth-central` korundu).
+- [x] `flutter pub get`, `flutter analyze` → temiz (1 pre-existing info).
+- Commit: `feat(contact): BLE peripheral paket kurulumu ve izinler`
+
+### 1.5.2 Contact tracing sabitleri ve ID encoding
+- [x] `lib/core/contact/contact_config.dart` — UUID sabiti + eşikler + encode/decode + tests (14/14).
+- Commit: `feat(contact): UUID sabitleri ve deviceId encoding`
+
+### 1.5.3 ContactAdvertiser servisi
+- [x] `features/contact/contact_advertiser.dart` — Android-only iBeacon yayın (0x004C + mfg data).
+- [x] iOS'ta `start()` no-op + log (paket kısıtı, kapsam notu eklendi).
+- [x] Riverpod `contactAdvertiserProvider`.
+- Commit: `feat(contact): ContactAdvertiser servisi`
+
+### 1.5.4 Scanner region'ına contact UUID'yi ekle
+- [x] `startDeviceRanging` içinde ikinci Region (`ContactTrace-<uuid>`) appenlendi.
+- [x] Ranging callback UUID'ye göre ayrıştırıyor (target → `_rows`, contact → `_onContactBeacon`).
+- [ ] Gerçek cihazda saha testi (1.5.10 kapsamında).
+- Commit: `feat(contact): scanner'a contact UUID region ekle`
+
+### 1.5.5 ContactEncounter modeli ve aggregation
+- [x] `core/contact/contact_encounter.dart` — model + `recentWindow`.
+- [x] `features/contact/contact_controller.dart` — Notifier, trigger hook, 5dk eviction, sample cap (600).
+- [x] `contactControllerProvider`.
+- Commit: `feat(contact): encounter aggregation ve contact tetikleme`
+
+### 1.5.6 Backend: ContactEvent entity + endpoint
+- [x] Entity + DTO + service (idempotent) + controller (`POST /api/contacts`) + module + app.module bağlantısı.
+- [x] curl test: 201 insert, 201 duplicate=true, 400 bad format, 400 bad rssi, 400 bad time.
+- [x] **Bonus fix**: pre-existing TypeORM `string | null` bug'ları (`visit.entity`, `beacon.entity`) `type: 'varchar'` ile düzeltildi — yoksa server hiç ayağa kalkmıyordu.
+- Commit: `feat(backend): ContactEvent entity ve endpoint`
+
+### 1.5.7 Mobil → Backend contact event gönderimi
+- [x] `sendContactEvent`, `flushContactQueue`, `pendingContactCount`, `_postContact`.
+- [x] Ayrı `_kContactQueueKey = 'offline_contact_queue_v1'`, `_contactQueueLock`.
+- [x] Trigger hook `BeaconController.initSdk`'da wire edildi — `ApiService.sendContactEvent` çağrılıyor.
+- Commit: `feat(contact): mobilden backend'e contact event gönderimi`
+
+### 1.5.8 Lifecycle ve opt-out entegrasyonu
+- [x] `didChangeAppLifecycleState` iOS pause/detached → stop, resumed → start (opt-in).
+- [x] "Temas Analizi" switch advertiser toggle + `setContactEnabledCache` (scanner region sökmek yerine event-drop — daha az kırılgan).
+- [x] `_ContactIndicator` widget: "Temas: X cihaz görüldü · N kayıtlı contact".
+- Commit: `feat(contact): lifecycle + opt-out entegrasyonu`
+
+### 1.5.9 Temas istatistikleri endpoint + panel
+- [x] `GET /api/stats/contacts` — totalContacts, uniqueDevicesInvolved (d∪a set), avgDuration, topPairs[10].
+- [x] Admin panele "Temas Raporu" kartı eklendi (`renderContactStats`).
+- [ ] Force-directed graph (opsiyonel, vakit varsa).
+- Commit: `feat(contact): temas istatistikleri endpoint ve panel`
+
+### 1.5.10 Saha testi ve dokümantasyon
+- [ ] İki gerçek **Android** cihazda (iOS advertiser yok — 1.5.3 notu) test et.
+- [ ] Senaryolar:
+  - İki Android yan yana 60+ saniye → backend'de 1 contact kaydı.
+  - 5m uzakta 60+ saniye → RSSI zayıf, contact **oluşmamalı**.
+  - Android A → Android B doğrulandıktan sonra roller değiştirilip tekrar test.
+  - iOS cihaz varsa: sadece **scanner** rolünde, Android'den gelen yayını görebiliyor mu.
+- [ ] Bulunan bug'ları "Bilinen Sorunlar"a yaz.
+- [x] README.md'ye contact tracing bölümü eklendi.
+- Commit: `docs(contact): saha testi sonuçları ve dokümantasyon`
+
+---
+
+## 🔴 Öncelik 2 — Diğer Rapor Gereklilikleri
+
+### 2.1 Gerçek grid tabanlı heatmap
+- [x] `simpleheat@0.4.0` CDN, offscreen canvas + drawImage compositing.
+- [x] Mevcut radial gradient kaldırıldı; trilaterasyon + fingerprint noktaları beslenir.
+- Commit: `feat: grid tabanlı yoğunluk ısı haritası`
+
+### 2.2 14 Günlük Veri Retention (KVKK)
+- [x] `@nestjs/schedule ^6.1.3` + `ScheduleModule.forRoot()`.
+- [x] `CleanupService` `@Cron(EVERY_DAY_AT_3AM)` visit + contact delete, Logger log.
+- [x] `RETENTION_DAYS` env ile override edilebilir.
+- Commit: `feat: 14 günlük retention cron job`
+
+### 2.3 PDF Rapor Export
+- [x] `pdfkit ^0.18.0` kuruldu.
+- [x] `GET /api/stats/report.pdf?from=&to=` — başlık + özet + dwell + contact.
+- [x] Admin panele "Rapor İndir (PDF)" butonu eklendi.
+- [ ] Heatmap snapshot — scope dışı bırakıldı (headless canvas gerektiriyor).
+- Commit: `feat: PDF analiz raporu`
+
+### 2.4 Tarih Aralığı Filtresi (Admin Panel)
+- [x] Panel üstü date range input + Uygula/Temizle butonları.
+- [x] `loadAll()` `dateQuery()` helper ile `?from=&to=` ISO format zenginleştirildi.
+- Commit: `feat: panelde tarih filtresi`
+
+### 2.5 Beacon Yönetimi (Admin Panel)
+- [x] Sağ panele "BEACONS" kartı: form (UUID/major/minor/x/y/name/standId) + liste + sil.
+- [x] Stand dropdown `stands` listesinden dinamik populate.
+- [x] `POST /api/beacons` ve `DELETE /api/beacons/:id` smoke test geçti.
+- Commit: `feat: admin panelde beacon yönetimi`
+
+---
+
+## 🟢 Öncelik 3 — Polish (Vakit Kalırsa)
+
+### 3.1 Real-time WebSocket
+- [~] **Scope dışı** ("Gerçek WebSocket — polling yeterli"). Atlandı.
+
+### 3.2 Error UX iyileştirme (Mobil)
+- [x] `_friendlyError` — raw Exception mesajlarını Türkçe user-facing metinlere çevirir.
+- [x] `_OfflineQueueBanner` — pendingCount > 0 ise sarı uyarı "X kayıt kuyrukta" (visit + contact toplamı, 5sn poll).
+
+### 3.3 Pil optimizasyonu (Contact tracing)
+- [x] `tuneScanLowPower` (scanPeriod=1100ms, between=5000ms) + normal mode swap.
+- [x] `BeaconController` `_scanPowerTimer` dakikalık kontrol; `_lastBeaconActivity` target veya contact event'te güncelleniyor; 10dk threshold.
+
+---
+
+## 📝 Savunma Günü Kontrol Listesi
+
+- [ ] Tüm senaryoların demo prova'sı yapıldı.
+- [ ] Raspberry Pi beacon + iki test telefonu hazır.
+- [ ] Backend lokal'de stabil.
+- [ ] Bitirme tezinde **Scope ve Kısıtlamalar** bölümü var.
+- [ ] iOS background advertising sorusu için hazır cevap mevcut.
+- [ ] Contact tracing eşikleri (RSSI/süre) raporda gerekçeli yazılmış.
+- [ ] KVKK maddelerinin her biri için kodda karşılığı gösterilebiliyor.
+
+---
+
+## 🐛 Bilinen Sorunlar / Sonra Bakılacaklar
+
+- (örnek) Kalman filter ilk 3-4 event'te stabilize oluyor, ilk ziyaret yanlış olabilir — düşük öncelik.

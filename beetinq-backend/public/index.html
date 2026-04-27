@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Beetinq Sense — Heatmap</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0f0f0f; color: #fff; font-family: sans-serif; }
+    header {
+      padding: 20px 32px;
+      background: #1a1a1a;
+      border-bottom: 1px solid #2a2a2a;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header span { font-size: 13px; color: #888; }
+    .container { padding: 32px; }
+    .stats-row { display: flex; gap: 16px; margin-bottom: 32px; }
+    .stat-card {
+      background: #1a1a1a; border: 1px solid #2a2a2a;
+      border-radius: 12px; padding: 20px 24px; min-width: 180px;
+    }
+    .stat-card .label { font-size: 12px; color: #888; margin-bottom: 8px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; }
+    .panels { display: flex; gap: 24px; align-items: flex-start; }
+    .panel {
+      background: #1a1a1a; border: 1px solid #2a2a2a;
+      border-radius: 12px; padding: 24px;
+    }
+    .panel h2 { font-size: 14px; color: #888; margin-bottom: 16px; }
+    .map-wrap { position: relative; }
+    canvas { border: 1px solid #2a2a2a; border-radius: 8px; display: block; cursor: crosshair; }
+    .dwell-list { min-width: 260px; }
+    .dwell-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 0; border-bottom: 1px solid #2a2a2a;
+    }
+    .dwell-item:last-child { border-bottom: none; }
+    .dwell-name { font-size: 14px; }
+    .dwell-meta { text-align: right; }
+    .dwell-duration { font-size: 16px; font-weight: 600; color: #3b82f6; }
+    .dwell-count { font-size: 11px; color: #666; margin-top: 2px; }
+    .bar-wrap { margin-top: 6px; height: 4px; background: #2a2a2a; border-radius: 2px; }
+    .bar { height: 4px; background: #3b82f6; border-radius: 2px; }
+    .add-form {
+      display: flex; gap: 8px; margin-bottom: 16px; align-items: center;
+    }
+    .add-form input {
+      background: #111; border: 1px solid #333; color: #fff;
+      padding: 8px 12px; border-radius: 8px; font-size: 13px; width: 180px;
+    }
+    .btn {
+      background: #3b82f6; color: #fff; border: none;
+      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    }
+    .btn:hover { background: #2563eb; }
+    .btn-red { background: #ef4444; }
+    .btn-red:hover { background: #dc2626; }
+    .hint { font-size: 12px; color: #555; margin-bottom: 12px; }
+    .stand-list-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid #1f1f1f; font-size: 13px;
+    }
+    .stand-list-item:last-child { border-bottom: none; }
+    .stand-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 8px; }
+  </style>
+  <!-- Grid tabanlı heatmap (Task 2.1) -->
+  <script src="https://unpkg.com/simpleheat@0.4.0/simpleheat.js"></script>
+</head>
+<body>
+  <header>
+    <div style="display:flex;align-items:center;gap:12px">
+      <h1>Beetinq Sense</h1>
+      <span>Ziyaretçi Yoğunluk Haritası</span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Tarih aralığı filtresi (Task 2.4) -->
+    <div class="date-filter" style="display:flex;gap:12px;align-items:center;margin-bottom:16px;font-size:13px">
+      <label>Başlangıç:
+        <input type="date" id="dateFrom" style="margin-left:6px;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px">
+      </label>
+      <label>Bitiş:
+        <input type="date" id="dateTo" style="margin-left:6px;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px">
+      </label>
+      <button class="btn" onclick="applyDateFilter()">Uygula</button>
+      <button class="btn btn-red" onclick="clearDateFilter()">Temizle</button>
+      <button class="btn" style="margin-left:auto;background:#10b981" onclick="downloadReport()">📄 Rapor İndir (PDF)</button>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label">Toplam Ziyaret</div>
+        <div class="value" id="totalVisits">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Aktif Stand</div>
+        <div class="value" id="totalLocations">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Ort. Bekleme</div>
+        <div class="value" id="avgDwell">—</div>
+      </div>
+    </div>
+
+    <div class="panels">
+
+      <!-- SOL: HARİTA -->
+      <div class="panel">
+        <h2>STAND HARİTASI</h2>
+        <div class="add-form">
+          <input id="standName" placeholder="Stand adı (örn: Sony Standı)" />
+          <button class="btn" onclick="addStandMode()">+ Stand Ekle</button>
+        </div>
+        <p class="hint" id="hint">Stand eklemek için yukarıya isim gir, sonra haritada tıkla.</p>
+        <div class="map-wrap">
+          <canvas id="heatmap" width="520" height="420"></canvas>
+        </div>
+      </div>
+
+      <!-- SAĞ: LİSTELER -->
+      <div style="display:flex;flex-direction:column;gap:24px">
+
+        <!-- Bekleme süreleri -->
+        <div class="panel dwell-list">
+          <h2>BEKLEME SÜRELERİ</h2>
+          <div id="dwellItems"><p style="color:#555;font-size:13px">Henüz veri yok</p></div>
+        </div>
+
+        <!-- Stand listesi -->
+        <div class="panel dwell-list">
+          <h2>STANDLAR</h2>
+          <div id="standItems"><p style="color:#555;font-size:13px">Henüz stand eklenmedi</p></div>
+        </div>
+
+        <!-- Temas Raporu -->
+        <div class="panel dwell-list">
+          <h2>TEMAS RAPORU</h2>
+          <div id="contactStats"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
+        </div>
+
+        <!-- Beacon Yönetimi (Task 2.5) -->
+        <div class="panel dwell-list">
+          <h2>BEACONS</h2>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
+            <input id="bUuid" placeholder="UUID" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:11px;grid-column:span 2">
+            <input id="bMajor" type="number" placeholder="Major" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <input id="bMinor" type="number" placeholder="Minor" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <input id="bX" type="number" step="0.01" placeholder="x (m)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <input id="bY" type="number" step="0.01" placeholder="y (m)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <input id="bName" placeholder="İsim (ops.)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <select id="bStand" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+              <option value="">Stand yok</option>
+            </select>
+          </div>
+          <button class="btn" onclick="addBeacon()" style="width:100%;margin-bottom:10px">+ Beacon Ekle</button>
+          <div id="beaconItems"><p style="color:#555;font-size:13px">Henüz beacon yok</p></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const ROOM_W = 7;
+    const ROOM_H = 5;
+    const PAD = 40;
+
+    let stands = [];
+    let dwellData = [];
+    let contactStats = null;
+    let heatmapData = { trilateration: [], fingerprint: [] };
+    let beacons = [];
+    let addingMode = false;
+    let dragging = null;
+
+    const canvas = document.getElementById('heatmap');
+    const ctx = canvas.getContext('2d');
+
+    // Grid tabanlı heatmap (Task 2.1): offscreen canvas üzerine simpleheat
+    // çizdirir, sonra ana canvas'a drawImage ile bindirilir.
+    const heatOffscreen = document.createElement('canvas');
+    heatOffscreen.width = canvas.width;
+    heatOffscreen.height = canvas.height;
+    const heat = simpleheat(heatOffscreen);
+    heat.radius(28, 18);   // nokta yarıçapı, blur
+    heat.gradient({
+      0.25: '#1e40af',
+      0.5:  '#fbbf24',
+      0.75: '#f97316',
+      1.0:  '#ef4444',
+    });
+
+    // ── COORD HELPERS ──────────────────────────────────────────────────
+    function toCanvas(rx, ry) {
+      return {
+        px: PAD + (rx / ROOM_W) * (canvas.width  - PAD * 2),
+        py: PAD + (ry / ROOM_H) * (canvas.height - PAD * 2),
+      };
+    }
+    function toRoom(px, py) {
+      return {
+        x: +( ((px - PAD) / (canvas.width  - PAD * 2)) * ROOM_W ).toFixed(2),
+        y: +( ((py - PAD) / (canvas.height - PAD * 2)) * ROOM_H ).toFixed(2),
+      };
+    }
+
+    // ── API CALLS ──────────────────────────────────────────────────────
+    // Tarih filtresi querystring'ini üret (Task 2.4).
+    function dateQuery() {
+      const from = document.getElementById('dateFrom')?.value;
+      const to   = document.getElementById('dateTo')?.value;
+      const p = new URLSearchParams();
+      if (from) p.set('from', new Date(from + 'T00:00:00').toISOString());
+      if (to)   p.set('to',   new Date(to   + 'T23:59:59').toISOString());
+      const s = p.toString();
+      return s ? `?${s}` : '';
+    }
+
+    function applyDateFilter() { loadAll(); }
+    function clearDateFilter() {
+      document.getElementById('dateFrom').value = '';
+      document.getElementById('dateTo').value = '';
+      loadAll();
+    }
+    function downloadReport() {
+      // Tarih filtresi aktifse aynı aralıkta indir
+      window.location = '/api/stats/report.pdf' + dateQuery();
+    }
+
+    async function loadAll() {
+      const q = dateQuery();
+      const [dwellRes, standsRes, contactRes, heatmapRes, beaconsRes] = await Promise.all([
+        fetch(`/api/stats/dwell${q}`),
+        fetch('/api/stands'),
+        fetch(`/api/stats/contacts${q}`),
+        fetch(`/api/stats/heatmap${q}`),
+        fetch('/api/beacons'),
+      ]);
+      dwellData = await dwellRes.json();
+      stands    = await standsRes.json();
+      contactStats = await contactRes.json();
+      heatmapData = await heatmapRes.json();
+      beacons = await beaconsRes.json();
+      renderStats();
+      renderDwellList();
+      renderStandList();
+      renderContactStats();
+      renderBeaconList();
+      renderBeaconStandOptions();
+      draw();
+    }
+
+    async function addBeacon() {
+      const uuid = document.getElementById('bUuid').value.trim();
+      const major = parseInt(document.getElementById('bMajor').value, 10);
+      const minor = parseInt(document.getElementById('bMinor').value, 10);
+      const x = parseFloat(document.getElementById('bX').value);
+      const y = parseFloat(document.getElementById('bY').value);
+      const name = document.getElementById('bName').value.trim() || undefined;
+      const standRaw = document.getElementById('bStand').value;
+      const standId = standRaw ? parseInt(standRaw, 10) : undefined;
+      if (!uuid || Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(x) || Number.isNaN(y)) {
+        alert('UUID, major, minor, x, y zorunlu.');
+        return;
+      }
+      const res = await fetch('/api/beacons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuid: uuid.toUpperCase(), major, minor, x, y, name, standId, eventId: 'default' }),
+      });
+      if (!res.ok) {
+        const body = await res.text();
+        alert('Hata: ' + body);
+        return;
+      }
+      ['bUuid','bMajor','bMinor','bX','bY','bName'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('bStand').value = '';
+      await loadAll();
+    }
+
+    async function deleteBeacon(id) {
+      if (!confirm(`Beacon sil: ${id}?`)) return;
+      await fetch(`/api/beacons/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    function renderBeaconList() {
+      const el = document.getElementById('beaconItems');
+      if (!beacons.length) {
+        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz beacon yok</p>';
+        return;
+      }
+      el.innerHTML = beacons.map(b => `
+        <div class="stand-list-item">
+          <span style="font-family:monospace;font-size:11px">
+            ${b.name ? `<b>${b.name}</b> · ` : ''}${b.major}/${b.minor} @ (${b.x.toFixed(1)},${b.y.toFixed(1)})
+            ${b.stand ? ` · <span style="color:#22c55e">${b.stand.name}</span>` : ''}
+          </span>
+          <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteBeacon('${b.id}')">Sil</button>
+        </div>
+      `).join('');
+    }
+
+    function renderBeaconStandOptions() {
+      const sel = document.getElementById('bStand');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">Stand yok</option>' +
+        stands.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+      sel.value = current;
+    }
+
+    async function saveStand(name, x, y) {
+      await fetch('/api/stands', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, x, y }),
+      });
+      await loadAll();
+    }
+
+    async function updateStand(id, x, y) {
+      await fetch(`/api/stands/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y }),
+      });
+      stands = stands.map(s => s.id === id ? { ...s, x, y } : s);
+      draw();
+    }
+
+    async function deleteStand(id) {
+      await fetch(`/api/stands/${id}`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    // ── UI ─────────────────────────────────────────────────────────────
+    function renderStats() {
+      const totalVisits = dwellData.reduce((s, d) => s + d.visitCount, 0);
+      const avgDwell = dwellData.length
+        ? Math.round(dwellData.reduce((s, d) => s + d.avgDuration, 0) / dwellData.length) : 0;
+      document.getElementById('totalVisits').textContent = totalVisits;
+      document.getElementById('totalLocations').textContent = stands.length;
+      document.getElementById('avgDwell').textContent = avgDwell ? avgDwell + 's' : '—';
+    }
+
+    function renderDwellList() {
+      const max = dwellData[0]?.avgDuration || 1;
+      document.getElementById('dwellItems').innerHTML = dwellData.length
+        ? dwellData.map(d => `
+          <div class="dwell-item">
+            <div class="dwell-name">${d.locationName}</div>
+            <div class="dwell-meta">
+              <div class="dwell-duration">${d.avgDuration}s</div>
+              <div class="dwell-count">${d.visitCount} ziyaret</div>
+              <div class="bar-wrap"><div class="bar" style="width:${Math.round(d.avgDuration/max*100)}%"></div></div>
+            </div>
+          </div>`).join('')
+        : '<p style="color:#555;font-size:13px">Henüz veri yok</p>';
+    }
+
+    function renderStandList() {
+      document.getElementById('standItems').innerHTML = stands.length
+        ? stands.map(s => `
+          <div class="stand-list-item">
+            <span><span class="stand-dot"></span>${s.name}</span>
+            <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteStand(${s.id})">Sil</button>
+          </div>`).join('')
+        : '<p style="color:#555;font-size:13px">Henüz stand eklenmedi</p>';
+    }
+
+    function renderContactStats() {
+      const el = document.getElementById('contactStats');
+      if (!contactStats || contactStats.totalContacts === 0) {
+        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz kayıtlı temas yok</p>';
+        return;
+      }
+      const s = contactStats;
+      const rows = s.topPairs.map(p => `
+        <div class="stand-list-item">
+          <span style="font-family:monospace;font-size:11px">${p.deviceId} ↔ ${p.seenAnonId}</span>
+          <span style="font-size:11px;color:#555">×${p.count}</span>
+        </div>
+      `).join('');
+      el.innerHTML = `
+        <div style="display:flex;gap:12px;margin-bottom:10px;font-size:12px">
+          <div><b>${s.totalContacts}</b> kayıt</div>
+          <div><b>~${s.uniqueDevicesInvolved}</b> cihaz</div>
+          <div><b>${s.avgDuration}s</b> ort. süre</div>
+        </div>
+        <div style="font-size:11px;color:#555;margin-bottom:6px">En sık çiftler:</div>
+        ${rows}
+      `;
+    }
+
+    // ── ADD MODE ───────────────────────────────────────────────────────
+    function addStandMode() {
+      const name = document.getElementById('standName').value.trim();
+      if (!name) { alert('Stand adı girin'); return; }
+      addingMode = true;
+      document.getElementById('hint').textContent = `"${name}" için haritada bir nokta seç...`;
+      canvas.style.cursor = 'crosshair';
+    }
+
+    // ── CANVAS EVENTS ──────────────────────────────────────────────────
+    canvas.addEventListener('mousedown', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+
+      if (addingMode) {
+        const { x, y } = toRoom(px, py);
+        const name = document.getElementById('standName').value.trim();
+        saveStand(name, x, y);
+        document.getElementById('standName').value = '';
+        addingMode = false;
+        canvas.style.cursor = 'default';
+        document.getElementById('hint').textContent = 'Stand eklemek için yukarıya isim gir, sonra haritada tıkla.';
+        return;
+      }
+
+      // Sürükle-bırak: bir stand'a tıklandı mı?
+      for (const s of stands) {
+        const { px: sx, py: sy } = toCanvas(s.x, s.y);
+        if (Math.hypot(px - sx, py - sy) < 16) {
+          dragging = s;
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
+      }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const { x, y } = toRoom(px, py);
+      dragging = { ...dragging, x, y };
+      stands = stands.map(s => s.id === dragging.id ? dragging : s);
+      draw();
+    });
+
+    canvas.addEventListener('mouseup', async () => {
+      if (!dragging) return;
+      await updateStand(dragging.id, dragging.x, dragging.y);
+      dragging = null;
+      canvas.style.cursor = 'default';
+    });
+
+    // ── DRAW ───────────────────────────────────────────────────────────
+    function draw() {
+      const W = canvas.width;
+      const H = canvas.height;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid
+      ctx.strokeStyle = '#1e1e1e';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= ROOM_W; x++) {
+        const px = PAD + (x / ROOM_W) * (W - PAD * 2);
+        ctx.beginPath(); ctx.moveTo(px, PAD); ctx.lineTo(px, H - PAD); ctx.stroke();
+      }
+      for (let y = 0; y <= ROOM_H; y++) {
+        const py = PAD + (y / ROOM_H) * (H - PAD * 2);
+        ctx.beginPath(); ctx.moveTo(PAD, py); ctx.lineTo(W - PAD, py); ctx.stroke();
+      }
+
+      // Dwell verisini stand adıyla eşleştir (liste + stand etiketleri için)
+      const dwellMap = {};
+      dwellData.forEach(d => { dwellMap[d.locationName] = d; });
+
+      // ── GRID TABANLI HEATMAP (Task 2.1) ──────────────────────────────
+      // Trilaterasyon noktaları kendi (x,y)'sine, fingerprint ziyaretleri
+      // stand koordinatına düşer — backend getHeatmapData bu ayrımı yapıyor.
+      const points = [];
+      for (const p of heatmapData.trilateration || []) {
+        const { px, py } = toCanvas(p.x, p.y);
+        points.push([px, py, 1]);
+      }
+      for (const p of heatmapData.fingerprint || []) {
+        const { px, py } = toCanvas(p.x, p.y);
+        points.push([px, py, p.count || 1]);
+      }
+      const maxVal = points.reduce((m, pt) => Math.max(m, pt[2]), 1);
+      heat.data(points).max(maxVal);
+      // Offscreen canvas'ı temizle (simpleheat.draw önce clear ediyor)
+      heat.draw(0.05);
+      ctx.drawImage(heatOffscreen, 0, 0);
+
+      // Stand noktaları ve isimler
+      stands.forEach(s => {
+        const { px, py } = toCanvas(s.x, s.y);
+        const dwell = dwellMap[s.name];
+
+        ctx.fillStyle = dwell ? '#22c55e' : '#6b7280';
+        ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 11px sans-serif';
+        ctx.fillText(s.name, px + 12, py + 4);
+
+        if (dwell) {
+          ctx.fillStyle = '#888';
+          ctx.font = '10px sans-serif';
+          ctx.fillText(`${dwell.visitCount} ziyaret · ${dwell.avgDuration}s`, px + 12, py + 16);
+        }
+      });
+    }
+
+    // ── INIT ───────────────────────────────────────────────────────────
+    loadAll();
+    setInterval(loadAll, 5000);
+  </script>
+</body>
+</html>

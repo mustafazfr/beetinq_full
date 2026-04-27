@@ -1,0 +1,540 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+
+final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
+
+class ApiService {
+  // ── SUNUCU ADRESİ ──────────────────────────────────────────────────────
+  //
+  // ❗ SAHA TESTİNDEN ÖNCE YAPILMASI GEREKEN TEK AYAR:
+  //
+  //   _lanIp değerini kendi bilgisayarınızın yerel ağ IP'siyle değiştirin.
+  //   Terminalden öğrenmek için:
+  //     macOS/Linux : ifconfig | grep "inet " | grep -v 127
+  //     Windows     : ipconfig | findstr "IPv4"
+  //   Örnek: static const String _lanIp = '192.168.1.42';
+  //
+  // Production sunucusu hazır olunca _productionUrl'i aktif edin.
+  //
+  static const String _lanIp = '172.20.10.13'; // ← buraya LAN IP yaz
+  static const String _productionUrl = 'https://api.beetinq.com/api';
+
+  // HTTPS flag — backend HTTPS_ENABLED=true ise burayı da true yap.
+  // Self-signed cert iOS/Android'de trust edilmiyorsa cert dosyasını
+  // cihaza install etmek gerekir; saha testi için genelde HTTP yeterli.
+  // Gerekirse prefs'e taşınır (Task 1.2 kararı: şimdilik sabit).
+  static const bool _useHttps = false;
+
+  static String get _baseUrl {
+    if (_lanIp != 'SAHA_TEST_IP') {
+      final scheme = _useHttps ? 'https' : 'http';
+      return '$scheme://$_lanIp:3000/api';
+    }
+    if (kReleaseMode) return _productionUrl;
+    if (Platform.isAndroid) return 'http://10.0.2.2:3000/api';
+    return 'http://localhost:3000/api';
+  }
+
+  static const String _kOfflineQueueKey = 'offline_visit_queue_v2';
+  // v2 suffix: payload formatı değişti (clientEventId eklendi).
+  // v1 kuyruğu varsa eski kayıtlar geçersiz değil, sadece idempotency
+  // olmadan gider — yine de çalışır.
+
+  // Contact tracing (Task 1.5.7): ayrı queue, ayrı lock.
+  static const String _kContactQueueKey = 'offline_contact_queue_v1';
+
+  static const _uuid = Uuid();
+
+  SharedPreferences? _prefs;
+  Future<SharedPreferences> get _prefsInstance async {
+    _prefs ??= await SharedPreferences.getInstance();
+    return _prefs!;
+  }
+
+  Future<void> _queueLock = Future<void>.value();
+  Future<void> _contactQueueLock = Future<void>.value();
+
+  Future<T> _withQueueLock<T>(Future<T> Function() fn) {
+    final Future<T> result = _queueLock.then<T>((_) => fn());
+    _queueLock = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<T> _withContactQueueLock<T>(Future<T> Function() fn) {
+    final Future<T> result = _contactQueueLock.then<T>((_) => fn());
+    _contactQueueLock = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // OFFLINE QUEUE — Yardımcı Metodlar
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> _loadQueue() async {
+    final prefs = await _prefsInstance;
+    final raw = prefs.getString(_kOfflineQueueKey);
+    if (raw == null) return [];
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return List<Map<String, dynamic>>.from(
+        decoded.map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+    } catch (e) {
+      debugPrint('⚠️ [API] Offline kuyruk JSON parse hatası, veri siliniyor: $e');
+      await prefs.remove(_kOfflineQueueKey);
+      return [];
+    }
+  }
+
+  Future<void> _saveQueue(List<Map<String, dynamic>> queue) async {
+    final prefs = await _prefsInstance;
+    if (queue.isEmpty) {
+      await prefs.remove(_kOfflineQueueKey);
+    } else {
+      await prefs.setString(_kOfflineQueueKey, jsonEncode(queue));
+    }
+  }
+
+  /// Bir ziyareti kuyruğun sonuna ekler.
+  Future<void> _enqueue(Map<String, dynamic> payload) {
+    return _withQueueLock(() async {
+      final queue = await _loadQueue();
+      queue.add(payload);
+      await _saveQueue(queue);
+      debugPrint('📥 [API] Offline kuyruğa eklendi. Kuyruk: ${queue.length} kayıt');
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // ANA METOD — Önce kuyruğa ekle, sonra göndermeye çalış
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Ziyaret verisini backend'e gönderir.
+  ///
+  /// VERİ KAYBI ÖNLEMİ: Önce kuyruğa yazar, sonra göndermeyi dener.
+  /// Gönderim sırasında app öldürülürse veri kuyrukta kalır ve bir
+  /// sonraki açılışta flush edilir.
+  ///
+  /// IDEMPOTENCY: Her çağrıda bir uuid v4 üretilir ve payload içine
+  /// gömülür. Retry'larda aynı uuid gider; backend ikinci INSERT'ü
+  /// duplicate olarak reddeder (unique index).
+  ///
+  /// Dönüş değeri sadece "anında gönderildi mi" bilgisi; false dönse
+  /// bile veri kuyrukta güvende.
+  Future<bool> sendVisitEvent({
+    required String deviceId,
+    required String locationName,
+    required DateTime enterTime,
+    required DateTime exitTime,
+    required int durationSeconds,
+    String? positionSource,
+    double? x,
+    double? y,
+  }) async {
+    final payload = <String, dynamic>{
+      'clientEventId': _uuid.v4(),
+      'deviceId': deviceId,
+      'locationName': locationName,
+      'enteredAt': enterTime.toUtc().toIso8601String(),
+      'exitedAt': exitTime.toUtc().toIso8601String(),
+      'durationSeconds': durationSeconds,
+      'positionSource': positionSource ?? 'unknown',
+      if (x != null) 'x': x,
+      if (y != null) 'y': y,
+    };
+
+    // 1) ÖNCE KUYRUĞA YAZ — hiçbir durumda veri kaybı yok.
+    await _enqueue(payload);
+
+    // 2) Sonra flush etmeyi dene. Başarılıysa kuyruktan silinir.
+    //    Başarısızsa kuyrukta kalır, bir sonraki flush'ta tekrar denenir.
+    try {
+      await flushQueue();
+      // flushQueue tamamlandı; payload hâlâ kuyrukta mı kontrol et
+      final stillPending = await _isPending(payload['clientEventId'] as String);
+      if (!stillPending) {
+        debugPrint('✅ [API] Ziyaret gönderildi: $locationName');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('⚠️ [API] sendVisitEvent flush hatası: $e');
+      return false;
+    }
+  }
+
+  /// Belirli bir clientEventId hâlâ kuyrukta mı?
+  Future<bool> _isPending(String clientEventId) async {
+    final queue = await _loadQueue();
+    return queue.any((item) => item['clientEventId'] == clientEventId);
+  }
+
+  /// Kuyruktaki tüm bekleyen kayıtları göndermeye çalışır.
+  Future<void> flushQueue() {
+    return _withQueueLock(() async {
+      final queue = await _loadQueue();
+      if (queue.isEmpty) return;
+
+      // STALE DATA TEMİZLEME: 7 günden eski kayıtları sil.
+      final cutoff = DateTime.now().subtract(const Duration(days: 7));
+      final fresh = queue.where((item) {
+        final raw = item['exitedAt'] as String?;
+        if (raw == null) return false;
+        try {
+          return DateTime.parse(raw).isAfter(cutoff);
+        } catch (_) {
+          return false;
+        }
+      }).toList();
+
+      final staleCnt = queue.length - fresh.length;
+      if (staleCnt > 0) {
+        debugPrint('🗑️ [API] $staleCnt eski kayıt (>7 gün) kuyruktan silindi.');
+      }
+      if (fresh.isEmpty) {
+        await _saveQueue([]);
+        return;
+      }
+
+      debugPrint('🔄 [API] Offline kuyruk flush: ${fresh.length} kayıt');
+
+      final remaining = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < fresh.length; i++) {
+        final item = fresh[i];
+        try {
+          final sent = await _postVisit(item);
+          if (sent) {
+            debugPrint('✅ [API] Kuyruktan gönderildi: ${item['locationName']}');
+          } else {
+            // Geçici hata — bu ve sonrasını kuyrukta tut
+            remaining.addAll(fresh.sublist(i));
+            break;
+          }
+        } on _PoisonPillException catch (e) {
+          debugPrint('🗑️ [API] Poison pill (${e.statusCode}), kayıt silindi: ${item['locationName']}');
+        }
+      }
+
+      await _saveQueue(remaining);
+
+      if (remaining.isEmpty) {
+        debugPrint('✅ [API] Tüm kuyruk gönderildi.');
+      } else {
+        debugPrint('⚠️ [API] ${remaining.length} kayıt hâlâ kuyrukta.');
+      }
+    });
+  }
+
+  Future<int> pendingCount() async {
+    return (await _loadQueue()).length;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DÜŞÜK SEVİYE — Ham HTTP POST
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Tek bir payload'ı /api/visit'e POST eder.
+  /// true  → başarılı (2xx)
+  /// false → geçici hata: ağ yok, timeout, 5xx → kuyrukta kalsın
+  /// throws _PoisonPillException → kalıcı hata: 4xx → kuyruktan sil
+  Future<bool> _postVisit(Map<String, dynamic> payload) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/visit'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      } else if (response.statusCode == 409) {
+        // Conflict: backend bu kaydı zaten almış (idempotency).
+        // Başarılı say, kuyruktan silinsin.
+        debugPrint('♻️ [API] 409 Conflict (zaten kaydedilmiş), atlanıyor.');
+        return true;
+      } else if (response.statusCode == 429) {
+        // Rate limit — geçici hata, kuyrukta kalsın
+        debugPrint('⏳ [API] 429 Rate limit, bekleniyor.');
+        return false;
+      } else if (response.statusCode >= 400 && response.statusCode < 500) {
+        // 4xx: Verinin kendisi hatalı — yeniden göndermek işe yaramaz.
+        debugPrint('🗑️ [API] Kalıcı hata ${response.statusCode}, kayıt siliniyor: ${response.body}');
+        throw _PoisonPillException(response.statusCode);
+      } else {
+        // 5xx veya diğer: Sunucu taraflı geçici hata — kuyrukta beklesin.
+        debugPrint('⚠️ [API] Sunucu hatası ${response.statusCode}: ${response.body}');
+        return false;
+      }
+    } on _PoisonPillException {
+      rethrow;
+    } on SocketException catch (e) {
+      debugPrint('❌ [API] Ağ hatası: $e');
+      return false;
+    } on HttpException catch (e) {
+      debugPrint('❌ [API] HTTP hatası: $e');
+      return false;
+    } catch (e) {
+      debugPrint('❌ [API] Bağlantı hatası: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // DİĞER ENDPOINT'LER
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Beacon koordinatlarını backend'den çek.
+  /// Backend endpoint: GET /api/beacons/locations?eventId=xxx
+  Future<List<Map<String, dynamic>>> fetchBeaconLocations({
+    String eventId = 'default',
+  }) async {
+    try {
+      final response = await http
+          .get(Uri.parse('$_baseUrl/beacons/locations?eventId=$eventId'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return List<Map<String, dynamic>>.from(
+          data.map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+      } else {
+        debugPrint('⚠️ [API] Beacon locations status: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ [API] Beacon koordinatları alınamadı: $e');
+    }
+    return [];
+  }
+
+  /// Backend'e bir beacon konumu kaydet (admin modu).
+  Future<bool> registerBeaconLocation({
+    required String uuid,
+    required int major,
+    required int minor,
+    required double x,
+    required double y,
+    String? name,
+    int? standId,
+    String eventId = 'default',
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/beacons'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'uuid': uuid.toUpperCase(),
+              'major': major,
+              'minor': minor,
+              'x': x,
+              'y': y,
+              if (name != null) 'name': name,
+              if (standId != null) 'standId': standId,
+              'eventId': eventId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      debugPrint('❌ [API] Beacon kaydı başarısız: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CONTACT TRACING (Task 1.5.7) — visits ile aynı pattern: önce enqueue,
+  // sonra flush, idempotent clientEventId. Ayrı queue anahtarı + ayrı lock.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> _loadContactQueue() async {
+    final prefs = await _prefsInstance;
+    final raw = prefs.getString(_kContactQueueKey);
+    if (raw == null) return [];
+    try {
+      final decoded = jsonDecode(raw) as List<dynamic>;
+      return List<Map<String, dynamic>>.from(
+        decoded.map((e) => Map<String, dynamic>.from(e as Map)),
+      );
+    } catch (e) {
+      debugPrint('⚠️ [API] Contact queue parse hatası, siliniyor: $e');
+      await prefs.remove(_kContactQueueKey);
+      return [];
+    }
+  }
+
+  Future<void> _saveContactQueue(List<Map<String, dynamic>> queue) async {
+    final prefs = await _prefsInstance;
+    if (queue.isEmpty) {
+      await prefs.remove(_kContactQueueKey);
+    } else {
+      await prefs.setString(_kContactQueueKey, jsonEncode(queue));
+    }
+  }
+
+  Future<void> _enqueueContact(Map<String, dynamic> payload) {
+    return _withContactQueueLock(() async {
+      final queue = await _loadContactQueue();
+      queue.add(payload);
+      await _saveContactQueue(queue);
+      debugPrint('📥 [API] Contact kuyruğa eklendi. Kuyruk: ${queue.length}');
+    });
+  }
+
+  Future<bool> _isContactPending(String clientEventId) async {
+    final queue = await _loadContactQueue();
+    return queue.any((item) => item['clientEventId'] == clientEventId);
+  }
+
+  /// Contact event'i backend'e gönderir. Önce kuyruğa yaz, sonra flush dene.
+  Future<bool> sendContactEvent({
+    required String deviceId,
+    required String seenAnonId,
+    required DateTime firstSeenAt,
+    required DateTime lastSeenAt,
+    required int durationSeconds,
+    required double avgRssi,
+    required int sampleCount,
+  }) async {
+    final payload = <String, dynamic>{
+      'clientEventId': _uuid.v4(),
+      'deviceId': deviceId,
+      'seenAnonId': seenAnonId,
+      'firstSeenAt': firstSeenAt.toUtc().toIso8601String(),
+      'lastSeenAt': lastSeenAt.toUtc().toIso8601String(),
+      'durationSeconds': durationSeconds,
+      'avgRssi': avgRssi,
+      'sampleCount': sampleCount,
+    };
+
+    await _enqueueContact(payload);
+
+    try {
+      await flushContactQueue();
+      final stillPending = await _isContactPending(
+        payload['clientEventId'] as String,
+      );
+      if (!stillPending) {
+        debugPrint('✅ [API] Contact gönderildi: $seenAnonId');
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('⚠️ [API] sendContactEvent flush hatası: $e');
+      return false;
+    }
+  }
+
+  Future<void> flushContactQueue() {
+    return _withContactQueueLock(() async {
+      final queue = await _loadContactQueue();
+      if (queue.isEmpty) return;
+
+      // Stale: 7 günden eski kayıtları sil (visit ile aynı eşik).
+      final cutoff = DateTime.now().subtract(const Duration(days: 7));
+      final fresh = queue.where((item) {
+        final raw = item['lastSeenAt'] as String?;
+        if (raw == null) return false;
+        try {
+          return DateTime.parse(raw).isAfter(cutoff);
+        } catch (_) {
+          return false;
+        }
+      }).toList();
+
+      final staleCnt = queue.length - fresh.length;
+      if (staleCnt > 0) {
+        debugPrint('🗑️ [API] $staleCnt eski contact silindi (>7 gün).');
+      }
+      if (fresh.isEmpty) {
+        await _saveContactQueue([]);
+        return;
+      }
+
+      debugPrint('🔄 [API] Contact queue flush: ${fresh.length} kayıt');
+
+      final remaining = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < fresh.length; i++) {
+        final item = fresh[i];
+        try {
+          final sent = await _postContact(item);
+          if (sent) {
+            debugPrint('✅ [API] Contact gönderildi: ${item['seenAnonId']}');
+          } else {
+            remaining.addAll(fresh.sublist(i));
+            break;
+          }
+        } on _PoisonPillException catch (e) {
+          debugPrint(
+            '🗑️ [API] Contact poison pill (${e.statusCode}), silindi: '
+            '${item['seenAnonId']}',
+          );
+        }
+      }
+
+      await _saveContactQueue(remaining);
+    });
+  }
+
+  Future<int> pendingContactCount() async {
+    return (await _loadContactQueue()).length;
+  }
+
+  Future<bool> _postContact(Map<String, dynamic> payload) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/contacts'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(payload),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return true;
+      } else if (response.statusCode == 409) {
+        debugPrint('♻️ [API] Contact 409 Conflict, atlanıyor.');
+        return true;
+      } else if (response.statusCode == 429) {
+        debugPrint('⏳ [API] Contact 429 Rate limit.');
+        return false;
+      } else if (response.statusCode >= 400 && response.statusCode < 500) {
+        debugPrint(
+          '🗑️ [API] Contact kalıcı hata ${response.statusCode}: ${response.body}',
+        );
+        throw _PoisonPillException(response.statusCode);
+      } else {
+        debugPrint(
+          '⚠️ [API] Contact sunucu hatası ${response.statusCode}: ${response.body}',
+        );
+        return false;
+      }
+    } on _PoisonPillException {
+      rethrow;
+    } on SocketException catch (e) {
+      debugPrint('❌ [API] Contact ağ hatası: $e');
+      return false;
+    } on HttpException catch (e) {
+      debugPrint('❌ [API] Contact HTTP hatası: $e');
+      return false;
+    } catch (e) {
+      debugPrint('❌ [API] Contact bağlantı hatası: $e');
+      return false;
+    }
+  }
+}
+
+/// 4xx kalıcı hata sinyali. Bu exception'ı alan flushQueue kaydı kuyruktan siler.
+class _PoisonPillException implements Exception {
+  final int statusCode;
+  const _PoisonPillException(this.statusCode);
+}

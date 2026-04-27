@@ -1,0 +1,30 @@
+
+# Editör
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Sırlar
+.env
+.env.local
+*.pem
+*.key
+certs/
+
+# Backend
+beetinq-backend/node_modules/
+beetinq-backend/dist/
+beetinq-backend/database.sqlite
+beetinq-backend/*.sqlite-journal
+
+# Flutter
+beetinq_sense/.dart_tool/
+beetinq_sense/.flutter-plugins
+beetinq_sense/.flutter-plugins-dependencies
+beetinq_sense/build/
+beetinq_sense/.pub-cache/
+beetinq_sense/.packages
