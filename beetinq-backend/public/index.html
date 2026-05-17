@@ -2,99 +2,150 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <title>Beetinq Sense — Heatmap</title>
+  <title>Beetinq Sense — Yönetim Paneli</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0f0f0f; color: #fff; font-family: sans-serif; }
+    body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
     header {
       padding: 20px 32px;
       background: #1a1a1a;
       border-bottom: 1px solid #2a2a2a;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      display: flex; align-items: center; justify-content: space-between;
     }
     header h1 { font-size: 18px; font-weight: 600; }
     header span { font-size: 13px; color: #888; }
-    .container { padding: 32px; }
-    .stats-row { display: flex; gap: 16px; margin-bottom: 32px; }
+    .container { padding: 24px 32px 64px; }
+    .stats-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
     .stat-card {
       background: #1a1a1a; border: 1px solid #2a2a2a;
-      border-radius: 12px; padding: 20px 24px; min-width: 180px;
+      border-radius: 12px; padding: 16px 20px; min-width: 150px; flex: 1;
     }
-    .stat-card .label { font-size: 12px; color: #888; margin-bottom: 8px; }
-    .stat-card .value { font-size: 28px; font-weight: 700; }
-    .panels { display: flex; gap: 24px; align-items: flex-start; }
+    .stat-card .label { font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .stat-card .value { font-size: 26px; font-weight: 700; }
+    .stat-card.live .value { color: #22c55e; }
+    .stat-card.live .label::after {
+      content: ' ●'; color: #22c55e;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .panels { display: grid; grid-template-columns: 540px 1fr; gap: 24px; align-items: flex-start; }
+    @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
+    .right-col { display: flex; flex-direction: column; gap: 24px; }
     .panel {
       background: #1a1a1a; border: 1px solid #2a2a2a;
-      border-radius: 12px; padding: 24px;
+      border-radius: 12px; padding: 20px;
     }
-    .panel h2 { font-size: 14px; color: #888; margin-bottom: 16px; }
+    .panel h2 {
+      font-size: 12px; color: #888; margin-bottom: 14px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
     .map-wrap { position: relative; }
-    canvas { border: 1px solid #2a2a2a; border-radius: 8px; display: block; cursor: crosshair; }
-    .dwell-list { min-width: 260px; }
+    canvas { display: block; }
+    #heatmap { border: 1px solid #2a2a2a; border-radius: 8px; cursor: crosshair; }
+
     .dwell-item {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 12px 0; border-bottom: 1px solid #2a2a2a;
+      padding: 10px 0; border-bottom: 1px solid #2a2a2a;
     }
     .dwell-item:last-child { border-bottom: none; }
-    .dwell-name { font-size: 14px; }
+    .dwell-name { font-size: 13px; }
     .dwell-meta { text-align: right; }
-    .dwell-duration { font-size: 16px; font-weight: 600; color: #3b82f6; }
+    .dwell-duration { font-size: 15px; font-weight: 600; color: #3b82f6; }
     .dwell-count { font-size: 11px; color: #666; margin-top: 2px; }
-    .bar-wrap { margin-top: 6px; height: 4px; background: #2a2a2a; border-radius: 2px; }
+    .bar-wrap { margin-top: 5px; height: 4px; background: #2a2a2a; border-radius: 2px; }
     .bar { height: 4px; background: #3b82f6; border-radius: 2px; }
-    .add-form {
-      display: flex; gap: 8px; margin-bottom: 16px; align-items: center;
-    }
-    .add-form input {
-      background: #111; border: 1px solid #333; color: #fff;
-      padding: 8px 12px; border-radius: 8px; font-size: 13px; width: 180px;
-    }
+
     .btn {
       background: #3b82f6; color: #fff; border: none;
-      padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px;
+      padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 12px;
     }
     .btn:hover { background: #2563eb; }
     .btn-red { background: #ef4444; }
     .btn-red:hover { background: #dc2626; }
-    .hint { font-size: 12px; color: #555; margin-bottom: 12px; }
+    .btn-green { background: #10b981; }
+    .btn-green:hover { background: #059669; }
+    .btn-ghost { background: transparent; border: 1px solid #333; color: #ccc; }
+    .btn-ghost:hover { background: #222; }
+
+    .hint { font-size: 11px; color: #555; margin-bottom: 10px; line-height: 1.5; }
     .stand-list-item {
       display: flex; justify-content: space-between; align-items: center;
       padding: 8px 0; border-bottom: 1px solid #1f1f1f; font-size: 13px;
     }
     .stand-list-item:last-child { border-bottom: none; }
     .stand-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 8px; }
+    .beacon-dot {
+      width: 0; height: 0;
+      border-left: 6px solid transparent; border-right: 6px solid transparent;
+      border-bottom: 10px solid #a855f7;
+      display: inline-block; margin-right: 8px; vertical-align: middle;
+    }
+
+    .filter-bar {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 20px;
+      font-size: 13px; flex-wrap: wrap;
+    }
+    .filter-bar input[type="date"] {
+      background: #111; border: 1px solid #333; color: #fff;
+      padding: 6px 8px; border-radius: 6px;
+    }
+
+    .chart-wrap { position: relative; height: 220px; }
+    .chart-wrap.small { height: 180px; }
+    .pie-wrap { position: relative; height: 200px; max-width: 240px; margin: 0 auto; }
+
+    .pill {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 10px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .pill-fp { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
+    .pill-tl { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+    .pill-un { background: rgba(156, 163, 175, 0.2); color: #d1d5db; }
   </style>
-  <!-- Grid tabanlı heatmap (Task 2.1) -->
   <script src="https://unpkg.com/simpleheat@0.4.0/simpleheat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header>
     <div style="display:flex;align-items:center;gap:12px">
       <h1>Beetinq Sense</h1>
-      <span>Ziyaretçi Yoğunluk Haritası</span>
+      <span>Yönetim Paneli</span>
     </div>
+    <span id="lastUpdate" style="font-size:11px;color:#555"></span>
   </header>
 
   <div class="container">
-    <!-- Tarih aralığı filtresi (Task 2.4) -->
-    <div class="date-filter" style="display:flex;gap:12px;align-items:center;margin-bottom:16px;font-size:13px">
+    <div class="filter-bar">
       <label>Başlangıç:
-        <input type="date" id="dateFrom" style="margin-left:6px;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px">
+        <input type="date" id="dateFrom" style="margin-left:6px">
       </label>
       <label>Bitiş:
-        <input type="date" id="dateTo" style="margin-left:6px;background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px">
+        <input type="date" id="dateTo" style="margin-left:6px">
       </label>
       <button class="btn" onclick="applyDateFilter()">Uygula</button>
-      <button class="btn btn-red" onclick="clearDateFilter()">Temizle</button>
-      <button class="btn" style="margin-left:auto;background:#10b981" onclick="downloadReport()">📄 Rapor İndir (PDF)</button>
+      <button class="btn btn-ghost" onclick="clearDateFilter()">Temizle</button>
+      <button class="btn btn-green" onclick="downloadCsv()" style="margin-left:8px">📥 CSV İndir</button>
+      <button class="btn btn-red" style="margin-left:auto" onclick="wipeAll()" title="Visit + Contact + Stand + Beacon hepsi silinir">🗑️ Tüm Veriyi Sil</button>
     </div>
 
     <div class="stats-row">
+      <div class="stat-card live">
+        <div class="label">Şu An Aktif</div>
+        <div class="value" id="activeNow">—</div>
+        <div style="font-size:10px;color:#666;margin-top:4px">son 5 dakika</div>
+      </div>
       <div class="stat-card">
         <div class="label">Toplam Ziyaret</div>
         <div class="value" id="totalVisits">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="label">Benzersiz Cihaz</div>
+        <div class="value" id="uniqueDevices">—</div>
       </div>
       <div class="stat-card">
         <div class="label">Aktif Stand</div>
@@ -104,60 +155,82 @@
         <div class="label">Ort. Bekleme</div>
         <div class="value" id="avgDwell">—</div>
       </div>
+      <div class="stat-card">
+        <div class="label">Toplam Temas</div>
+        <div class="value" id="totalContacts">—</div>
+      </div>
     </div>
 
     <div class="panels">
 
-      <!-- SOL: HARİTA -->
-      <div class="panel">
-        <h2>STAND HARİTASI</h2>
-        <div class="add-form">
-          <input id="standName" placeholder="Stand adı (örn: Sony Standı)" />
-          <button class="btn" onclick="addStandMode()">+ Stand Ekle</button>
+      <!-- SOL: HARİTA + saatlik trafik -->
+      <div style="display:flex;flex-direction:column;gap:24px">
+        <div class="panel">
+          <h2>Stand Haritası</h2>
+          <p class="hint">
+            Stand'lar mobilden otomatik gelir (fingerprint kaydı = stand). Haritada sürükleyerek konumlarını düzelt.
+          </p>
+          <div style="display:flex;gap:8px;margin-bottom:8px;align-items:center;font-size:12px">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="heatmapToggle" onchange="toggleHeatmap()">
+              <span>🔥 Yoğunluk haritasını göster</span>
+            </label>
+            <span style="color:#666" id="heatmapHint">(varsayılan: kapalı)</span>
+          </div>
+          <div class="map-wrap">
+            <canvas id="heatmap" width="500" height="400"></canvas>
+          </div>
         </div>
-        <p class="hint" id="hint">Stand eklemek için yukarıya isim gir, sonra haritada tıkla.</p>
-        <div class="map-wrap">
-          <canvas id="heatmap" width="520" height="420"></canvas>
+
+        <div class="panel">
+          <h2>Saatlik Trafik</h2>
+          <p class="hint">Her saat dilimi için ziyaret sayısı ve benzersiz cihaz.</p>
+          <div class="chart-wrap"><canvas id="hourlyChart"></canvas></div>
+        </div>
+
+        <div class="panel">
+          <h2>Bekleme Süresi Dağılımı</h2>
+          <p class="hint">Tüm stand'lar üzerinden dwell time histogram'ı.</p>
+          <div class="chart-wrap small"><canvas id="dwellHistChart"></canvas></div>
         </div>
       </div>
 
-      <!-- SAĞ: LİSTELER -->
-      <div style="display:flex;flex-direction:column;gap:24px">
+      <!-- SAĞ: LİSTELER + grafik kartları -->
+      <div class="right-col">
 
-        <!-- Bekleme süreleri -->
-        <div class="panel dwell-list">
-          <h2>BEKLEME SÜRELERİ</h2>
+        <div class="panel">
+          <h2>Bekleme Süreleri (Stand Bazında)</h2>
           <div id="dwellItems"><p style="color:#555;font-size:13px">Henüz veri yok</p></div>
         </div>
 
-        <!-- Stand listesi -->
-        <div class="panel dwell-list">
-          <h2>STANDLAR</h2>
+        <div class="panel">
+          <h2>Konum Kaynağı Dağılımı</h2>
+          <p class="hint">Fingerprint vs Trilateration vs Bilinmeyen ziyaret oranı.</p>
+          <div class="pie-wrap"><canvas id="sourceChart"></canvas></div>
+          <div id="sourceLegend" style="margin-top:10px;font-size:11px;color:#888"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Stand'lar</h2>
           <div id="standItems"><p style="color:#555;font-size:13px">Henüz stand eklenmedi</p></div>
         </div>
 
-        <!-- Temas Raporu -->
-        <div class="panel dwell-list">
-          <h2>TEMAS RAPORU</h2>
+        <div class="panel">
+          <h2>Temas Raporu</h2>
           <div id="contactStats"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
+          <div id="contactGraphWrap" style="display:none;margin-top:12px">
+            <p class="hint">Cihazlar arası temas ağı (top 10 çift).</p>
+            <canvas id="contactGraph" width="460" height="260" style="background:#0f0f0f;border:1px solid #2a2a2a;border-radius:8px"></canvas>
+          </div>
         </div>
 
-        <!-- Beacon Yönetimi (Task 2.5) -->
-        <div class="panel dwell-list">
-          <h2>BEACONS</h2>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px">
-            <input id="bUuid" placeholder="UUID" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:11px;grid-column:span 2">
-            <input id="bMajor" type="number" placeholder="Major" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-            <input id="bMinor" type="number" placeholder="Minor" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-            <input id="bX" type="number" step="0.01" placeholder="x (m)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-            <input id="bY" type="number" step="0.01" placeholder="y (m)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-            <input id="bName" placeholder="İsim (ops.)" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-            <select id="bStand" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
-              <option value="">Stand yok</option>
-            </select>
-          </div>
-          <button class="btn" onclick="addBeacon()" style="width:100%;margin-bottom:10px">+ Beacon Ekle</button>
+        <div class="panel">
+          <h2>Beacons</h2>
+          <p class="hint">
+            Mobilden otomatik gelir. Haritada sürükle ile yerini düzelt. "Otomatik Yerleştir" tüm beacon'ları 1m'lik grid'e oturtur.
+          </p>
           <div id="beaconItems"><p style="color:#555;font-size:13px">Henüz beacon yok</p></div>
+          <button class="btn" id="autoLayoutBtn" style="margin-top:10px;background:#10b981;width:100%" onclick="autoLayoutBeacons()">🎯 Otomatik Yerleştir (Grid)</button>
         </div>
 
       </div>
@@ -165,51 +238,101 @@
   </div>
 
   <script>
-    const ROOM_W = 7;
-    const ROOM_H = 5;
+    // ─────────────────────────────────────────────────────────────────────
+    // GLOBAL STATE
+    // ─────────────────────────────────────────────────────────────────────
     const PAD = 40;
+    const DEFAULT_ROOM = { ox: 0, oy: 0, w: 7, h: 5 };
+    let _frozenRoom = null;
 
     let stands = [];
     let dwellData = [];
+    let summaryData = null;
     let contactStats = null;
     let heatmapData = { trilateration: [], fingerprint: [] };
     let beacons = [];
-    let addingMode = false;
+    let hourlyData = [];
+    let sourceData = null;
+    let dwellHist = null;
+    let activeNowData = null;
     let dragging = null;
+    let showHeatmap = (localStorage.getItem('showHeatmap') === '1');
+
+    let hourlyChart = null;
+    let sourceChart = null;
+    let dwellHistChart = null;
+
+    localStorage.removeItem('beaconConstraints_v1');
 
     const canvas = document.getElementById('heatmap');
     const ctx = canvas.getContext('2d');
 
-    // Grid tabanlı heatmap (Task 2.1): offscreen canvas üzerine simpleheat
-    // çizdirir, sonra ana canvas'a drawImage ile bindirilir.
     const heatOffscreen = document.createElement('canvas');
     heatOffscreen.width = canvas.width;
     heatOffscreen.height = canvas.height;
     const heat = simpleheat(heatOffscreen);
-    heat.radius(28, 18);   // nokta yarıçapı, blur
-    heat.gradient({
-      0.25: '#1e40af',
-      0.5:  '#fbbf24',
-      0.75: '#f97316',
-      1.0:  '#ef4444',
-    });
+    heat.radius(28, 18);
+    heat.gradient({ 0.25: '#1e40af', 0.5: '#fbbf24', 0.75: '#f97316', 1.0: '#ef4444' });
 
-    // ── COORD HELPERS ──────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // COORD HELPERS (oda bbox + canvas mapping)
+    // ─────────────────────────────────────────────────────────────────────
+    function computeRoom() {
+      const points = [];
+      for (const b of beacons) {
+        if (typeof b.x === 'number' && typeof b.y === 'number') points.push([b.x, b.y]);
+      }
+      for (const s of stands) {
+        if (typeof s.x === 'number' && typeof s.y === 'number') points.push([s.x, s.y]);
+      }
+      if (points.length < 2) return { ...DEFAULT_ROOM };
+
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const [x, y] of points) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+      const padding = 1;
+      let ox = minX - padding;
+      let oy = minY - padding;
+      let w = Math.max(maxX - minX + padding * 2, 3);
+      let h = Math.max(maxY - minY + padding * 2, 3);
+
+      const innerW = canvas.width - PAD * 2;
+      const innerH = canvas.height - PAD * 2;
+      const canvasRatio = innerW / innerH;
+      const bboxRatio = w / h;
+      if (bboxRatio < canvasRatio) {
+        const newW = h * canvasRatio;
+        ox -= (newW - w) / 2;
+        w = newW;
+      } else if (bboxRatio > canvasRatio) {
+        const newH = w / canvasRatio;
+        oy -= (newH - h) / 2;
+        h = newH;
+      }
+      return { ox, oy, w, h };
+    }
+
+    function currentRoom() { return _frozenRoom || computeRoom(); }
     function toCanvas(rx, ry) {
+      const r = currentRoom();
       return {
-        px: PAD + (rx / ROOM_W) * (canvas.width  - PAD * 2),
-        py: PAD + (ry / ROOM_H) * (canvas.height - PAD * 2),
+        px: PAD + ((rx - r.ox) / r.w) * (canvas.width  - PAD * 2),
+        py: PAD + ((ry - r.oy) / r.h) * (canvas.height - PAD * 2),
       };
     }
     function toRoom(px, py) {
+      const r = currentRoom();
       return {
-        x: +( ((px - PAD) / (canvas.width  - PAD * 2)) * ROOM_W ).toFixed(2),
-        y: +( ((py - PAD) / (canvas.height - PAD * 2)) * ROOM_H ).toFixed(2),
+        x: +( ((px - PAD) / (canvas.width  - PAD * 2)) * r.w + r.ox ).toFixed(2),
+        y: +( ((py - PAD) / (canvas.height - PAD * 2)) * r.h + r.oy ).toFixed(2),
       };
     }
 
-    // ── API CALLS ──────────────────────────────────────────────────────
-    // Tarih filtresi querystring'ini üret (Task 2.4).
+    // ─────────────────────────────────────────────────────────────────────
+    // DATE FILTER
+    // ─────────────────────────────────────────────────────────────────────
     function dateQuery() {
       const from = document.getElementById('dateFrom')?.value;
       const to   = document.getElementById('dateTo')?.value;
@@ -219,132 +342,97 @@
       const s = p.toString();
       return s ? `?${s}` : '';
     }
-
     function applyDateFilter() { loadAll(); }
     function clearDateFilter() {
       document.getElementById('dateFrom').value = '';
       document.getElementById('dateTo').value = '';
       loadAll();
     }
-    function downloadReport() {
-      // Tarih filtresi aktifse aynı aralıkta indir
-      window.location = '/api/stats/report.pdf' + dateQuery();
+
+    function toggleHeatmap() {
+      showHeatmap = document.getElementById('heatmapToggle').checked;
+      localStorage.setItem('showHeatmap', showHeatmap ? '1' : '0');
+      draw();
     }
 
+    function downloadCsv() {
+      const q = dateQuery();
+      // Yeni sekme yerine direkt download tetikle.
+      window.location.href = `/api/stats/visits.csv${q}`;
+    }
+
+    async function wipeAll() {
+      if (!confirm('TÜM stand/beacon/visit/contact verisi silinecek. Bu işlem geri alınamaz. Devam?')) return;
+      const res = await fetch('/api/admin/wipe', { method: 'POST' });
+      if (!res.ok) { alert('Hata: ' + (await res.text())); return; }
+      const r = await res.json();
+      alert(`Silindi:\n• ${r.deleted.visits} visit\n• ${r.deleted.contacts} contact\n• ${r.deleted.beacons} beacon\n• ${r.deleted.stands} stand`);
+      await loadAll();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // DATA LOAD
+    // ─────────────────────────────────────────────────────────────────────
     async function loadAll() {
       const q = dateQuery();
-      const [dwellRes, standsRes, contactRes, heatmapRes, beaconsRes] = await Promise.all([
-        fetch(`/api/stats/dwell${q}`),
-        fetch('/api/stands'),
-        fetch(`/api/stats/contacts${q}`),
-        fetch(`/api/stats/heatmap${q}`),
-        fetch('/api/beacons'),
-      ]);
-      dwellData = await dwellRes.json();
-      stands    = await standsRes.json();
-      contactStats = await contactRes.json();
-      heatmapData = await heatmapRes.json();
-      beacons = await beaconsRes.json();
-      renderStats();
-      renderDwellList();
-      renderStandList();
-      renderContactStats();
-      renderBeaconList();
-      renderBeaconStandOptions();
-      draw();
-    }
+      try {
+        const [
+          dwellRes, standsRes, contactRes, heatmapRes, beaconsRes,
+          summaryRes, hourlyRes, sourceRes, dwellHistRes, activeRes
+        ] = await Promise.all([
+          fetch(`/api/stats/dwell${q}`),
+          fetch('/api/stands'),
+          fetch(`/api/stats/contacts${q}`),
+          fetch(`/api/stats/heatmap${q}`),
+          fetch('/api/beacons'),
+          fetch(`/api/stats/summary${q}`),
+          fetch(`/api/stats/hourly${q}`),
+          fetch(`/api/stats/sources${q}`),
+          fetch(`/api/stats/dwell-distribution${q}`),
+          fetch('/api/stats/active?minutes=5'),
+        ]);
+        dwellData = await dwellRes.json();
+        stands = await standsRes.json();
+        contactStats = await contactRes.json();
+        heatmapData = await heatmapRes.json();
+        beacons = await beaconsRes.json();
+        summaryData = await summaryRes.json();
+        hourlyData = await hourlyRes.json();
+        sourceData = await sourceRes.json();
+        dwellHist = await dwellHistRes.json();
+        activeNowData = await activeRes.json();
 
-    async function addBeacon() {
-      const uuid = document.getElementById('bUuid').value.trim();
-      const major = parseInt(document.getElementById('bMajor').value, 10);
-      const minor = parseInt(document.getElementById('bMinor').value, 10);
-      const x = parseFloat(document.getElementById('bX').value);
-      const y = parseFloat(document.getElementById('bY').value);
-      const name = document.getElementById('bName').value.trim() || undefined;
-      const standRaw = document.getElementById('bStand').value;
-      const standId = standRaw ? parseInt(standRaw, 10) : undefined;
-      if (!uuid || Number.isNaN(major) || Number.isNaN(minor) || Number.isNaN(x) || Number.isNaN(y)) {
-        alert('UUID, major, minor, x, y zorunlu.');
-        return;
+        renderStats();
+        renderDwellList();
+        renderStandList();
+        renderContactStats();
+        renderBeaconList();
+        renderHourly();
+        renderSource();
+        renderDwellHist();
+        renderContactGraph();
+        draw();
+
+        const ts = new Date();
+        document.getElementById('lastUpdate').textContent =
+          `Son güncelleme: ${ts.toLocaleTimeString('tr-TR')}`;
+      } catch (e) {
+        console.error('loadAll hatası:', e);
       }
-      const res = await fetch('/api/beacons', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uuid: uuid.toUpperCase(), major, minor, x, y, name, standId, eventId: 'default' }),
-      });
-      if (!res.ok) {
-        const body = await res.text();
-        alert('Hata: ' + body);
-        return;
-      }
-      ['bUuid','bMajor','bMinor','bX','bY','bName'].forEach(id => document.getElementById(id).value = '');
-      document.getElementById('bStand').value = '';
-      await loadAll();
     }
 
-    async function deleteBeacon(id) {
-      if (!confirm(`Beacon sil: ${id}?`)) return;
-      await fetch(`/api/beacons/${encodeURIComponent(id)}`, { method: 'DELETE' });
-      await loadAll();
-    }
-
-    function renderBeaconList() {
-      const el = document.getElementById('beaconItems');
-      if (!beacons.length) {
-        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz beacon yok</p>';
-        return;
-      }
-      el.innerHTML = beacons.map(b => `
-        <div class="stand-list-item">
-          <span style="font-family:monospace;font-size:11px">
-            ${b.name ? `<b>${b.name}</b> · ` : ''}${b.major}/${b.minor} @ (${b.x.toFixed(1)},${b.y.toFixed(1)})
-            ${b.stand ? ` · <span style="color:#22c55e">${b.stand.name}</span>` : ''}
-          </span>
-          <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteBeacon('${b.id}')">Sil</button>
-        </div>
-      `).join('');
-    }
-
-    function renderBeaconStandOptions() {
-      const sel = document.getElementById('bStand');
-      const current = sel.value;
-      sel.innerHTML = '<option value="">Stand yok</option>' +
-        stands.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
-      sel.value = current;
-    }
-
-    async function saveStand(name, x, y) {
-      await fetch('/api/stands', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, x, y }),
-      });
-      await loadAll();
-    }
-
-    async function updateStand(id, x, y) {
-      await fetch(`/api/stands/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y }),
-      });
-      stands = stands.map(s => s.id === id ? { ...s, x, y } : s);
-      draw();
-    }
-
-    async function deleteStand(id) {
-      await fetch(`/api/stands/${id}`, { method: 'DELETE' });
-      await loadAll();
-    }
-
-    // ── UI ─────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // RENDERERS
+    // ─────────────────────────────────────────────────────────────────────
     function renderStats() {
-      const totalVisits = dwellData.reduce((s, d) => s + d.visitCount, 0);
-      const avgDwell = dwellData.length
-        ? Math.round(dwellData.reduce((s, d) => s + d.avgDuration, 0) / dwellData.length) : 0;
-      document.getElementById('totalVisits').textContent = totalVisits;
-      document.getElementById('totalLocations').textContent = stands.length;
-      document.getElementById('avgDwell').textContent = avgDwell ? avgDwell + 's' : '—';
+      // Summary endpoint single source of truth — dwellData reduce yerine.
+      const s = summaryData || { totalVisits: 0, uniqueDevices: 0, avgDuration: 0 };
+      document.getElementById('totalVisits').textContent = s.totalVisits;
+      document.getElementById('uniqueDevices').textContent = s.uniqueDevices;
+      document.getElementById('totalLocations').textContent = s.activeStands;
+      document.getElementById('avgDwell').textContent = s.avgDuration ? s.avgDuration + 's' : '—';
+      document.getElementById('totalContacts').textContent = contactStats?.totalContacts ?? 0;
+      document.getElementById('activeNow').textContent = activeNowData?.activeDevices ?? 0;
     }
 
     function renderDwellList() {
@@ -355,7 +443,7 @@
             <div class="dwell-name">${d.locationName}</div>
             <div class="dwell-meta">
               <div class="dwell-duration">${d.avgDuration}s</div>
-              <div class="dwell-count">${d.visitCount} ziyaret</div>
+              <div class="dwell-count">${d.visitCount} ziyaret · ${d.uniqueVisitors} cihaz</div>
               <div class="bar-wrap"><div class="bar" style="width:${Math.round(d.avgDuration/max*100)}%"></div></div>
             </div>
           </div>`).join('')
@@ -374,59 +462,327 @@
 
     function renderContactStats() {
       const el = document.getElementById('contactStats');
+      const graphWrap = document.getElementById('contactGraphWrap');
       if (!contactStats || contactStats.totalContacts === 0) {
         el.innerHTML = '<p style="color:#555;font-size:13px">Henüz kayıtlı temas yok</p>';
+        graphWrap.style.display = 'none';
         return;
       }
       const s = contactStats;
-      const rows = s.topPairs.map(p => `
+      const rows = s.topPairs.slice(0, 8).map(p => `
         <div class="stand-list-item">
           <span style="font-family:monospace;font-size:11px">${p.deviceId} ↔ ${p.seenAnonId}</span>
           <span style="font-size:11px;color:#555">×${p.count}</span>
         </div>
       `).join('');
       el.innerHTML = `
-        <div style="display:flex;gap:12px;margin-bottom:10px;font-size:12px">
-          <div><b>${s.totalContacts}</b> kayıt</div>
-          <div><b>~${s.uniqueDevicesInvolved}</b> cihaz</div>
-          <div><b>${s.avgDuration}s</b> ort. süre</div>
+        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px">
+          <div><b style="color:#a78bfa">${s.totalContacts}</b> kayıt</div>
+          <div><b style="color:#a78bfa">~${s.uniqueDevicesInvolved}</b> cihaz</div>
+          <div><b style="color:#a78bfa">${s.avgDuration}s</b> ort. süre</div>
         </div>
         <div style="font-size:11px;color:#555;margin-bottom:6px">En sık çiftler:</div>
         ${rows}
       `;
+      graphWrap.style.display = s.topPairs.length > 0 ? 'block' : 'none';
     }
 
-    // ── ADD MODE ───────────────────────────────────────────────────────
-    function addStandMode() {
-      const name = document.getElementById('standName').value.trim();
-      if (!name) { alert('Stand adı girin'); return; }
-      addingMode = true;
-      document.getElementById('hint').textContent = `"${name}" için haritada bir nokta seç...`;
-      canvas.style.cursor = 'crosshair';
+    function renderBeaconList() {
+      const el = document.getElementById('beaconItems');
+      if (!beacons.length) {
+        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz beacon yok</p>';
+        return;
+      }
+      el.innerHTML = beacons.map(b => `
+        <div class="stand-list-item">
+          <span style="font-family:monospace;font-size:11px">
+            <span class="beacon-dot"></span>${b.name ? `<b>${b.name}</b> · ` : ''}${b.major}/${b.minor} @ (${b.x.toFixed(1)},${b.y.toFixed(1)})
+            ${b.stand ? ` · <span style="color:#22c55e">${b.stand.name}</span>` : ''}
+          </span>
+          <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteBeacon('${b.id}')">Sil</button>
+        </div>
+      `).join('');
     }
 
-    // ── CANVAS EVENTS ──────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────
+    // CHARTS (Chart.js)
+    // ─────────────────────────────────────────────────────────────────────
+    Chart.defaults.color = '#888';
+    Chart.defaults.borderColor = '#2a2a2a';
+    Chart.defaults.font.size = 11;
+
+    function renderHourly() {
+      const ctx = document.getElementById('hourlyChart').getContext('2d');
+      const labels = hourlyData.map(h => String(h.hour).padStart(2, '0'));
+      if (hourlyChart) { hourlyChart.destroy(); }
+      hourlyChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Ziyaret',
+              data: hourlyData.map(h => h.visitCount),
+              backgroundColor: '#3b82f6',
+              borderRadius: 3,
+            },
+            {
+              label: 'Benzersiz cihaz',
+              data: hourlyData.map(h => h.uniqueDevices),
+              backgroundColor: '#10b981',
+              borderRadius: 3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { position: 'top', labels: { color: '#aaa', boxWidth: 12 } } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true, grid: { color: '#1f1f1f' } },
+          },
+        },
+      });
+    }
+
+    function renderSource() {
+      const ctx = document.getElementById('sourceChart').getContext('2d');
+      if (sourceChart) { sourceChart.destroy(); }
+      const d = sourceData || { fingerprint: 0, trilateration: 0, unknown: 0, total: 0 };
+      sourceChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Fingerprint', 'Trilateration', 'Bilinmeyen'],
+          datasets: [{
+            data: [d.fingerprint, d.trilateration, d.unknown],
+            backgroundColor: ['#22c55e', '#3b82f6', '#6b7280'],
+            borderColor: '#1a1a1a',
+            borderWidth: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: '60%',
+          plugins: { legend: { position: 'bottom', labels: { color: '#aaa', boxWidth: 10, padding: 8 } } },
+        },
+      });
+
+      const total = d.total || 1;
+      const pct = n => Math.round(n / total * 100);
+      document.getElementById('sourceLegend').innerHTML =
+        `Toplam <b style="color:#fff">${d.total}</b> ziyaret · ` +
+        `<span class="pill pill-fp">${pct(d.fingerprint)}% FP</span> ` +
+        `<span class="pill pill-tl">${pct(d.trilateration)}% TL</span> ` +
+        `<span class="pill pill-un">${pct(d.unknown)}% ?</span>`;
+    }
+
+    function renderDwellHist() {
+      const ctx = document.getElementById('dwellHistChart').getContext('2d');
+      if (dwellHistChart) { dwellHistChart.destroy(); }
+      const labels = dwellHist?.buckets?.map(b => b.label) ?? [];
+      const counts = dwellHist?.buckets?.map(b => b.count) ?? [];
+      dwellHistChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Ziyaret sayısı',
+            data: counts,
+            backgroundColor: [
+              '#ef4444', '#f97316', '#fbbf24', '#22c55e', '#3b82f6',
+            ],
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false } },
+            y: { beginAtZero: true, grid: { color: '#1f1f1f' } },
+          },
+        },
+      });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CONTACT NETWORK MINI-GRAPH (canvas force-directed, dependency-free)
+    // ─────────────────────────────────────────────────────────────────────
+    function renderContactGraph() {
+      const c = document.getElementById('contactGraph');
+      if (!c) return;
+      const cx = c.getContext('2d');
+      cx.clearRect(0, 0, c.width, c.height);
+      cx.fillStyle = '#0f0f0f';
+      cx.fillRect(0, 0, c.width, c.height);
+
+      const pairs = (contactStats?.topPairs ?? []).slice(0, 10);
+      if (!pairs.length) return;
+
+      // Node set + edge list
+      const nodes = new Map(); // id → { x, y, vx, vy }
+      const edges = [];
+      const radius = 90;
+      for (const p of pairs) {
+        if (!nodes.has(p.deviceId)) nodes.set(p.deviceId, { id: p.deviceId, type: 'd' });
+        if (!nodes.has(p.seenAnonId)) nodes.set(p.seenAnonId, { id: p.seenAnonId, type: 'a' });
+        edges.push({ a: p.deviceId, b: p.seenAnonId, w: p.count });
+      }
+
+      // Çember üzerinde rastgele başlat (deterministik: id'ye göre)
+      const nodeArr = Array.from(nodes.values());
+      const cw = c.width / 2;
+      const ch = c.height / 2;
+      nodeArr.forEach((n, i) => {
+        const angle = (i / nodeArr.length) * Math.PI * 2;
+        n.x = cw + Math.cos(angle) * radius;
+        n.y = ch + Math.sin(angle) * radius;
+        n.vx = 0; n.vy = 0;
+      });
+
+      // Basit force-directed: 80 iterasyon
+      for (let iter = 0; iter < 80; iter++) {
+        // Repulsion (her node arası)
+        for (let i = 0; i < nodeArr.length; i++) {
+          for (let j = i + 1; j < nodeArr.length; j++) {
+            const a = nodeArr[i], b = nodeArr[j];
+            const dx = a.x - b.x, dy = a.y - b.y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+            const force = 600 / (dist * dist);
+            const fx = (dx / dist) * force;
+            const fy = (dy / dist) * force;
+            a.vx += fx; a.vy += fy;
+            b.vx -= fx; b.vy -= fy;
+          }
+        }
+        // Attraction (edge'ler boyunca)
+        const nodeMap = new Map(nodeArr.map(n => [n.id, n]));
+        for (const e of edges) {
+          const a = nodeMap.get(e.a);
+          const b = nodeMap.get(e.b);
+          if (!a || !b) continue;
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+          const desired = 70;
+          const k = 0.015 * Math.log(1 + e.w);
+          const force = (dist - desired) * k;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          a.vx += fx; a.vy += fy;
+          b.vx -= fx; b.vy -= fy;
+        }
+        // Gravity → merkez
+        for (const n of nodeArr) {
+          n.vx += (cw - n.x) * 0.005;
+          n.vy += (ch - n.y) * 0.005;
+          n.x += n.vx * 0.2;
+          n.y += n.vy * 0.2;
+          n.vx *= 0.85; n.vy *= 0.85;
+          // canvas içine kıs
+          n.x = Math.max(15, Math.min(c.width - 15, n.x));
+          n.y = Math.max(15, Math.min(c.height - 15, n.y));
+        }
+      }
+
+      // Edge'leri çiz
+      const maxW = Math.max(...pairs.map(p => p.w));
+      const nodeMap = new Map(nodeArr.map(n => [n.id, n]));
+      for (const e of edges) {
+        const a = nodeMap.get(e.a);
+        const b = nodeMap.get(e.b);
+        if (!a || !b) continue;
+        cx.strokeStyle = `rgba(167, 139, 250, ${0.3 + 0.7 * (e.w / maxW)})`;
+        cx.lineWidth = 1 + 2 * (e.w / maxW);
+        cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
+      }
+
+      // Node'ları çiz (deviceId = mavi, anon = mor)
+      for (const n of nodeArr) {
+        cx.beginPath();
+        cx.fillStyle = n.type === 'd' ? '#60a5fa' : '#c084fc';
+        cx.arc(n.x, n.y, 7, 0, Math.PI * 2);
+        cx.fill();
+        cx.fillStyle = '#aaa';
+        cx.font = '9px monospace';
+        cx.fillText(n.id, n.x + 9, n.y + 3);
+      }
+
+      // Legend
+      cx.fillStyle = '#888';
+      cx.font = '10px sans-serif';
+      cx.fillText('● rapor eden cihaz', 10, c.height - 16);
+      cx.fillStyle = '#c084fc';
+      cx.fillText('● görülen cihaz', 10, c.height - 4);
+      cx.fillStyle = '#60a5fa';
+      cx.fillText('●', 0, c.height - 16);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // CANVAS HARITA (mevcut davranış korundu)
+    // ─────────────────────────────────────────────────────────────────────
+    async function deleteBeacon(id) {
+      if (!confirm(`Beacon sil: ${id}?`)) return;
+      await fetch(`/api/beacons/${encodeURIComponent(id)}`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    async function patchBeaconCoords(id, x, y) {
+      await fetch(`/api/beacons/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y }),
+      });
+      beacons = beacons.map(b => b.id === id ? { ...b, x, y } : b);
+    }
+
+    async function updateStand(id, x, y) {
+      await fetch(`/api/stands/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ x, y }),
+      });
+      stands = stands.map(s => s.id === id ? { ...s, x, y } : s);
+      draw();
+    }
+
+    async function deleteStand(id) {
+      await fetch(`/api/stands/${id}`, { method: 'DELETE' });
+      await loadAll();
+    }
+
+    function autoLayoutBeacons() {
+      if (!beacons.length) { alert('Yerleştirilecek beacon yok.'); return; }
+      if (!confirm(`${beacons.length} beacon 1m aralıklı grid'e yerleştirilecek. Mevcut konumlar değişecek. Devam?`)) return;
+      const sorted = [...beacons].sort((a, b) => a.id.localeCompare(b.id));
+      const tasks = sorted.map((b, i) => {
+        const x = 1 + (i % 5);
+        const y = 1 + Math.floor(i / 5);
+        return patchBeaconCoords(b.id, x, y);
+      });
+      Promise.all(tasks).then(() => draw()).catch(e => alert('Grid yerleştirme hatası: ' + e.message));
+    }
+
     canvas.addEventListener('mousedown', (e) => {
       const rect = canvas.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
-
-      if (addingMode) {
-        const { x, y } = toRoom(px, py);
-        const name = document.getElementById('standName').value.trim();
-        saveStand(name, x, y);
-        document.getElementById('standName').value = '';
-        addingMode = false;
-        canvas.style.cursor = 'default';
-        document.getElementById('hint').textContent = 'Stand eklemek için yukarıya isim gir, sonra haritada tıkla.';
-        return;
+      for (const b of beacons) {
+        const { px: bx, py: by } = toCanvas(b.x, b.y);
+        if (Math.hypot(px - bx, py - by) < 14) {
+          _frozenRoom = computeRoom();
+          dragging = { kind: 'beacon', ref: { ...b } };
+          canvas.style.cursor = 'grabbing';
+          return;
+        }
       }
-
-      // Sürükle-bırak: bir stand'a tıklandı mı?
       for (const s of stands) {
         const { px: sx, py: sy } = toCanvas(s.x, s.y);
         if (Math.hypot(px - sx, py - sy) < 16) {
-          dragging = s;
+          _frozenRoom = computeRoom();
+          dragging = { kind: 'stand', ref: { ...s } };
           canvas.style.cursor = 'grabbing';
           return;
         }
@@ -439,19 +795,26 @@
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
       const { x, y } = toRoom(px, py);
-      dragging = { ...dragging, x, y };
-      stands = stands.map(s => s.id === dragging.id ? dragging : s);
+      dragging.ref = { ...dragging.ref, x, y };
+      if (dragging.kind === 'stand') {
+        stands = stands.map(s => s.id === dragging.ref.id ? dragging.ref : s);
+      } else {
+        beacons = beacons.map(b => b.id === dragging.ref.id ? dragging.ref : b);
+      }
       draw();
     });
 
-    canvas.addEventListener('mouseup', async () => {
+    window.addEventListener('mouseup', async () => {
       if (!dragging) return;
-      await updateStand(dragging.id, dragging.x, dragging.y);
+      const { kind, ref } = dragging;
       dragging = null;
       canvas.style.cursor = 'default';
+      _frozenRoom = null;
+      if (kind === 'stand') await updateStand(ref.id, ref.x, ref.y);
+      else await patchBeaconCoords(ref.id, ref.x, ref.y);
+      draw();
     });
 
-    // ── DRAW ───────────────────────────────────────────────────────────
     function draw() {
       const W = canvas.width;
       const H = canvas.height;
@@ -460,52 +823,71 @@
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, W, H);
 
-      // Grid
+      const room = currentRoom();
       ctx.strokeStyle = '#1e1e1e';
       ctx.lineWidth = 1;
-      for (let x = 0; x <= ROOM_W; x++) {
-        const px = PAD + (x / ROOM_W) * (W - PAD * 2);
+      const xStart = Math.ceil(room.ox);
+      const xEnd   = Math.floor(room.ox + room.w);
+      for (let x = xStart; x <= xEnd; x++) {
+        const px = PAD + ((x - room.ox) / room.w) * (W - PAD * 2);
         ctx.beginPath(); ctx.moveTo(px, PAD); ctx.lineTo(px, H - PAD); ctx.stroke();
       }
-      for (let y = 0; y <= ROOM_H; y++) {
-        const py = PAD + (y / ROOM_H) * (H - PAD * 2);
+      const yStart = Math.ceil(room.oy);
+      const yEnd   = Math.floor(room.oy + room.h);
+      for (let y = yStart; y <= yEnd; y++) {
+        const py = PAD + ((y - room.oy) / room.h) * (H - PAD * 2);
         ctx.beginPath(); ctx.moveTo(PAD, py); ctx.lineTo(W - PAD, py); ctx.stroke();
       }
 
-      // Dwell verisini stand adıyla eşleştir (liste + stand etiketleri için)
       const dwellMap = {};
       dwellData.forEach(d => { dwellMap[d.locationName] = d; });
 
-      // ── GRID TABANLI HEATMAP (Task 2.1) ──────────────────────────────
-      // Trilaterasyon noktaları kendi (x,y)'sine, fingerprint ziyaretleri
-      // stand koordinatına düşer — backend getHeatmapData bu ayrımı yapıyor.
-      const points = [];
-      for (const p of heatmapData.trilateration || []) {
-        const { px, py } = toCanvas(p.x, p.y);
-        points.push([px, py, 1]);
+      if (showHeatmap) {
+        const points = [];
+        // Trilaterasyon: artık count'lu geliyor (0.5m grid quantize'lı)
+        for (const p of heatmapData.trilateration || []) {
+          const { px, py } = toCanvas(p.x, p.y);
+          points.push([px, py, p.count || 1]);
+        }
+        for (const p of heatmapData.fingerprint || []) {
+          const { px, py } = toCanvas(p.x, p.y);
+          points.push([px, py, p.count || 1]);
+        }
+        if (points.length > 0) {
+          const maxVal = points.reduce((m, pt) => Math.max(m, pt[2]), 1);
+          heat.data(points).max(maxVal);
+          heat.draw(0.05);
+          ctx.drawImage(heatOffscreen, 0, 0);
+        }
       }
-      for (const p of heatmapData.fingerprint || []) {
-        const { px, py } = toCanvas(p.x, p.y);
-        points.push([px, py, p.count || 1]);
-      }
-      const maxVal = points.reduce((m, pt) => Math.max(m, pt[2]), 1);
-      heat.data(points).max(maxVal);
-      // Offscreen canvas'ı temizle (simpleheat.draw önce clear ediyor)
-      heat.draw(0.05);
-      ctx.drawImage(heatOffscreen, 0, 0);
 
-      // Stand noktaları ve isimler
+      // BEACON NOKTALARI
+      for (const b of beacons) {
+        const { px, py } = toCanvas(b.x, b.y);
+        ctx.fillStyle = '#a855f7';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px, py - 8);
+        ctx.lineTo(px - 7, py + 6);
+        ctx.lineTo(px + 7, py + 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#a855f7';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(`${b.major}/${b.minor}${b.name ? ` · ${b.name}` : ''}`, px + 10, py + 3);
+      }
+
+      // STAND NOKTALARI
       stands.forEach(s => {
         const { px, py } = toCanvas(s.x, s.y);
         const dwell = dwellMap[s.name];
-
         ctx.fillStyle = dwell ? '#22c55e' : '#6b7280';
         ctx.beginPath(); ctx.arc(px, py, 8, 0, Math.PI * 2); ctx.fill();
-
         ctx.fillStyle = '#fff';
         ctx.font = 'bold 11px sans-serif';
         ctx.fillText(s.name, px + 12, py + 4);
-
         if (dwell) {
           ctx.fillStyle = '#888';
           ctx.font = '10px sans-serif';
@@ -514,7 +896,8 @@
       });
     }
 
-    // ── INIT ───────────────────────────────────────────────────────────
+    // INIT
+    document.getElementById('heatmapToggle').checked = showHeatmap;
     loadAll();
     setInterval(loadAll, 5000);
   </script>

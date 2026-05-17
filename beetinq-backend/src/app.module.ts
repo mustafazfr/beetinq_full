@@ -12,6 +12,7 @@ import { StandsModule } from './stands/stands.module';
 import { BeaconsModule } from './beacons/beacons.module';
 import { ContactsModule } from './contacts/contacts.module';
 import { CommonModule } from './common/common.module';
+import { AdminModule } from './admin/admin.module';
 
 import { Visit } from './visits/visit.entity';
 import { Stand } from './stands/stand.entity';
@@ -48,6 +49,7 @@ import { ContactEvent } from './contacts/contact-event.entity';
     BeaconsModule,
     ContactsModule,
     CommonModule,
+    AdminModule,
   ],
   providers: [
     {

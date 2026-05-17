@@ -28,15 +28,19 @@ export class CreateBeaconDto {
   @Max(65535)
   minor: number;
 
+  // x,y opsiyonel: verilmezse BeaconsService.create auto-grid (1m aralıklı)
+  // pozisyona koyar. Mobil tarafında "Konum bilmiyorum" akışı için.
+  @IsOptional()
   @IsNumber()
   @Min(-1000)
   @Max(1000)
-  x: number;
+  x?: number;
 
+  @IsOptional()
   @IsNumber()
   @Min(-1000)
   @Max(1000)
-  y: number;
+  y?: number;
 
   @IsOptional()
   @IsString()

@@ -1,6 +1,5 @@
 import {
   Injectable,
-  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -17,16 +16,37 @@ export class StandsService {
     private standsRepository: Repository<Stand>,
   ) {}
 
+  /**
+   * x/y verilmediyse mevcut stand sayısına göre 1m aralıklı grid'e
+   * oturt: 5'lik satır. (1,1), (2,1)... (5,1), (1,2)... Beacon ile
+   * aynı mantık (BeaconsService.nextAutoPosition).
+   */
+  private async nextAutoPosition(): Promise<{ x: number; y: number }> {
+    const n = await this.standsRepository.count();
+    return { x: 1 + (n % 5), y: 1 + Math.floor(n / 5) };
+  }
+
+  /**
+   * Idempotent create: aynı isimde stand varsa yenisini eklemeden
+   * mevcut'u döndürür. Mobilden fingerprint kaydı her seferinde aynı
+   * locationName ile gelebilir; her birinde 409 atmak yerine sessizce
+   * geçeriz. Davranış 200/201 ayrımı yok — controller her ikisinde de
+   * objeyi döner.
+   */
   async create(dto: CreateStandDto) {
     const existing = await this.standsRepository.findOne({
       where: { name: dto.name },
     });
-    if (existing) {
-      throw new ConflictException(
-        `"${dto.name}" adında stand zaten var`,
-      );
-    }
-    const stand = this.standsRepository.create(dto);
+    if (existing) return existing;
+
+    const auto = (dto.x === undefined || dto.y === undefined)
+      ? await this.nextAutoPosition()
+      : null;
+    const stand = this.standsRepository.create({
+      name: dto.name,
+      x: dto.x ?? auto!.x,
+      y: dto.y ?? auto!.y,
+    });
     return this.standsRepository.save(stand);
   }
 

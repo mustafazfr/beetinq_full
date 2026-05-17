@@ -1,8 +1,7 @@
-import { Controller, Get, Header, Query, Res } from '@nestjs/common';
-import { IsOptional, IsDateString } from 'class-validator';
+import { Controller, Get, Query, Res, Header } from '@nestjs/common';
 import type { Response } from 'express';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import PDFDocument = require('pdfkit');
+import { IsOptional, IsDateString, IsInt, Min, Max, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
 
 import { StatsService } from './stats.service';
 
@@ -14,6 +13,21 @@ class StatsQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+}
+
+class ActiveQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(1440)
+  minutes?: number;
+}
+
+class DwellDistributionQueryDto extends StatsQueryDto {
+  @IsOptional()
+  @IsString()
+  locationName?: string;
 }
 
 @Controller('stats')
@@ -44,84 +58,85 @@ export class StatsController {
     return this.statsService.getContactStats(q.from, q.to);
   }
 
+  /** Saatlik trafik dağılımı (24 kova). Dashboard bar chart için. */
+  @Get('hourly')
+  getHourlyTraffic(@Query() q: StatsQueryDto) {
+    return this.statsService.getHourlyTraffic(q.from, q.to);
+  }
+
   /**
-   * Task 2.3 — PDF rapor. Tarih aralığı filtre query'si visit/contact
-   * stats'a uygulanır, pdfkit ile metinsel rapor üretilir. Heatmap snapshot
-   * eklenmedi (headless canvas gerektiriyor, bitirme scope dışı).
+   * Son N dakikada aktif olan unique cihaz sayısı. Default 5 dk.
+   * Dashboard real-time badge için.
    */
-  @Get('report.pdf')
-  @Header('Content-Type', 'application/pdf')
-  @Header('Content-Disposition', 'attachment; filename="beetinq-rapor.pdf"')
-  async getReportPdf(@Query() q: StatsQueryDto, @Res() res: Response) {
-    const [summary, dwell, contacts] = await Promise.all([
-      this.statsService.getSummary(q.from, q.to),
-      this.statsService.getDwellStats(q.from, q.to),
-      this.statsService.getContactStats(q.from, q.to),
-    ]);
+  @Get('active')
+  getActiveNow(@Query() q: ActiveQueryDto) {
+    return this.statsService.getActiveNow(q.minutes ?? 5);
+  }
 
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    doc.pipe(res);
+  /** positionSource dağılımı: fingerprint / trilateration / unknown. */
+  @Get('sources')
+  getSourceDistribution(@Query() q: StatsQueryDto) {
+    return this.statsService.getSourceDistribution(q.from, q.to);
+  }
 
-    // Başlık
-    doc.fontSize(20).text('Beetinq Sense — Analiz Raporu', { align: 'center' });
-    doc.moveDown(0.3);
-    const rangeLabel =
-      q.from || q.to
-        ? `Aralık: ${q.from ?? '…'} → ${q.to ?? '…'}`
-        : `Aralık: tüm veriler`;
-    doc.fontSize(10).fillColor('#666').text(rangeLabel, { align: 'center' });
-    doc.fillColor('black');
-    doc.moveDown(1);
+  /** Dwell time histogram (5 kova). Opsiyonel locationName filter. */
+  @Get('dwell-distribution')
+  getDwellDistribution(@Query() q: DwellDistributionQueryDto) {
+    return this.statsService.getDwellDistribution(q.from, q.to, q.locationName);
+  }
 
-    // Özet
-    doc.fontSize(14).text('Özet', { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(11)
-      .text(`Toplam ziyaret: ${summary.totalVisits}`)
-      .text(`Benzersiz cihaz: ${summary.uniqueDevices}`)
-      .text(`Ortalama bekleme: ${summary.avgDuration} sn`)
-      .text(`Toplam bekleme: ${summary.totalDuration} sn`)
-      .text(`Aktif stand: ${summary.activeStands}`);
-    doc.moveDown(1);
+  /**
+   * Tüm ziyaretleri CSV olarak indir. Excel uyumlu (UTF-8 BOM + CRLF).
+   * Hassas alan: deviceId açık, hash zaten — kişisel veri yok.
+   */
+  @Get('visits.csv')
+  @Header('Content-Type', 'text/csv; charset=utf-8')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="beetinq-visits.csv"',
+  )
+  async getVisitsCsv(@Query() q: StatsQueryDto, @Res() res: Response) {
+    const visits = await this.statsService.getAllVisitsForCsv(q.from, q.to);
 
-    // Dwell listesi
-    doc.fontSize(14).text('Stand bazlı bekleme süreleri', { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(11);
-    if (dwell.length === 0) {
-      doc.fillColor('#666').text('Kayıt yok').fillColor('black');
-    } else {
-      for (const d of dwell) {
-        doc.text(
-          `• ${d.locationName} — ort. ${d.avgDuration}s, ` +
-            `${d.visitCount} ziyaret, ${d.uniqueVisitors} cihaz`,
-        );
+    const cols = [
+      'id',
+      'deviceId',
+      'locationName',
+      'enteredAt',
+      'exitedAt',
+      'durationSeconds',
+      'positionSource',
+      'x',
+      'y',
+      'createdAt',
+    ];
+
+    const escape = (v: unknown): string => {
+      if (v == null) return '';
+      const s = String(v);
+      // CSV escape: çift tırnak çift tırnağa, varsa tırnak içine al.
+      if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+        return `"${s.replace(/"/g, '""')}"`;
       }
+      return s;
+    };
+
+    const lines: string[] = [];
+    lines.push(cols.join(','));
+    for (const v of visits) {
+      lines.push(
+        cols
+          .map((c) => {
+            const val = (v as unknown as Record<string, unknown>)[c];
+            if (val instanceof Date) return escape(val.toISOString());
+            return escape(val);
+          })
+          .join(','),
+      );
     }
-    doc.moveDown(1);
 
-    // Contact özeti
-    doc.fontSize(14).text('Temas raporu', { underline: true });
-    doc.moveDown(0.3);
-    doc.fontSize(11)
-      .text(`Toplam temas: ${contacts.totalContacts}`)
-      .text(`Tahmini benzersiz cihaz: ~${contacts.uniqueDevicesInvolved}`)
-      .text(`Ortalama temas süresi: ${contacts.avgDuration} sn`);
-    if (contacts.topPairs.length > 0) {
-      doc.moveDown(0.4);
-      doc.text('En sık karşılaşan çiftler:');
-      for (const p of contacts.topPairs) {
-        doc.text(`  ${p.deviceId}  ↔  ${p.seenAnonId}  ×${p.count}`);
-      }
-    }
-
-    // Footer
-    doc.moveDown(2);
-    doc.fontSize(9).fillColor('#888').text(
-      `Oluşturulma: ${new Date().toISOString()} · Beetinq Sense (bitirme projesi)`,
-      { align: 'center' },
-    );
-
-    doc.end();
+    // UTF-8 BOM: Excel'in TR karakterleri doğru göstermesi için.
+    const bom = '﻿';
+    res.send(bom + lines.join('\r\n'));
   }
 }

@@ -24,6 +24,16 @@ export class BeaconsService {
     return `${uuid.toUpperCase()}-${major}-${minor}`;
   }
 
+  /**
+   * x/y verilmediyse mevcut beacon sayısına göre 1m aralıklı grid'e
+   * yerleştirir: 5'lik satır, satırlar 1m aralıklı. (1,1), (2,1)...
+   * (5,1), (1,2)... Kullanıcı admin panelden drag-drop ile düzeltir.
+   */
+  private async nextAutoPosition(eventId: string): Promise<{ x: number; y: number }> {
+    const n = await this.beaconsRepository.count({ where: { eventId } });
+    return { x: 1 + (n % 5), y: 1 + Math.floor(n / 5) };
+  }
+
   async create(dto: CreateBeaconDto) {
     const id = this.buildId(dto.uuid, dto.major, dto.minor);
     const existing = await this.beaconsRepository.findOne({ where: { id } });
@@ -43,16 +53,22 @@ export class BeaconsService {
       }
     }
 
+    const eventId = dto.eventId ?? 'default';
+    // x veya y verilmemişse auto-grid: kullanıcı zaten admin panelden düzeltebilir.
+    const auto = (dto.x === undefined || dto.y === undefined)
+      ? await this.nextAutoPosition(eventId)
+      : null;
+
     const beacon = this.beaconsRepository.create({
       id,
       uuid: dto.uuid.toUpperCase(),
       major: dto.major,
       minor: dto.minor,
-      x: dto.x,
-      y: dto.y,
+      x: dto.x ?? auto!.x,
+      y: dto.y ?? auto!.y,
       name: dto.name ?? null,
       stand,
-      eventId: dto.eventId ?? 'default',
+      eventId,
     });
     return this.beaconsRepository.save(beacon);
   }
@@ -82,6 +98,16 @@ export class BeaconsService {
       // Tercih sırası: explicit name > stand name > null
       name: b.name ?? b.stand?.name ?? null,
     }));
+  }
+
+  async update(id: string, dto: { x?: number; y?: number }) {
+    const beacon = await this.beaconsRepository.findOne({ where: { id } });
+    if (!beacon) {
+      throw new NotFoundException(`Beacon bulunamadı: ${id}`);
+    }
+    if (dto.x !== undefined) beacon.x = dto.x;
+    if (dto.y !== undefined) beacon.y = dto.y;
+    return this.beaconsRepository.save(beacon);
   }
 
   async remove(id: string) {

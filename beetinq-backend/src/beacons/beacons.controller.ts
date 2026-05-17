@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Delete,
   Body,
   Param,
@@ -10,6 +11,7 @@ import {
 
 import { BeaconsService } from './beacons.service';
 import { CreateBeaconDto } from './dto/create-beacon.dto';
+import { UpdateBeaconDto } from './dto/update-beacon.dto';
 
 @Controller('beacons')
 export class BeaconsController {
@@ -34,6 +36,12 @@ export class BeaconsController {
   @Get('locations')
   getLocations(@Query('eventId') eventId?: string) {
     return this.beaconsService.getLocationsForMobile(eventId ?? 'default');
+  }
+
+  /** Drag-drop ile x,y güncelleme. */
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateBeaconDto) {
+    return this.beaconsService.update(id, dto);
   }
 
   @Delete(':id')
