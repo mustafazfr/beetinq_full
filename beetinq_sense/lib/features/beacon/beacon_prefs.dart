@@ -12,6 +12,29 @@ class BeaconPrefs {
   static const _sessionLocationKey = 'session_location';
   static const _sessionStartTimeKey = 'session_start_time';
 
+  /// Wipe button (test/demo): tüm yerel veri kayıtlarını siler.
+  /// KORUNAN: opt-out switch'leri (kullanıcı tercihi, test datası değil).
+  static const _dataKeys = <String>[
+    _kTargetKey,
+    _kFingerprintsKey,
+    _kBeaconLocationsKey,
+    _sessionLocationKey,
+    _sessionStartTimeKey,
+    _sessionPositionSourceKey,
+    _sessionTrilaterationXKey,
+    _sessionTrilaterationYKey,
+    _sessionLastSeenTimeKey,
+    'offline_visit_queue_v2',
+    'offline_contact_queue_v1',
+  ];
+
+  Future<void> wipeAllData() async {
+    final sp = await SharedPreferences.getInstance();
+    for (final k in _dataKeys) {
+      await sp.remove(k);
+    }
+  }
+
   // ─── TARGET ───────────────────────────────────────────────
 
   Future<BeaconTarget?> loadTarget() async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../beacon/api_service.dart';
 import '../beacon/beacon_controller.dart';
 import '../beacon/device_id_service.dart';
 import '../contact/contact_advertiser.dart';
@@ -149,8 +150,107 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     padding: EdgeInsets.all(16),
                     child: Center(child: LinearProgressIndicator()),
                   ),
+
+                const SizedBox(height: 24),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: Text(
+                    'Test Araçları',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  color: Colors.red.shade50,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tüm test verisini sil',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Bu telefondaki: kayıtlı UUID, fingerprint snapshot\'ları, '
+                          'beacon koordinatları, aktif session, offline kuyruklar.\n'
+                          'Sunucudaki: tüm visit, contact, stand, beacon kayıtları.\n\n'
+                          'Geri alınamaz.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.red.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _busy ? null : _wipeAll,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.delete_forever),
+                            label: const Text('Hepsini Sıfırla'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
+    );
+  }
+
+  Future<void> _wipeAll() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Emin misin?'),
+        content: const Text(
+          'Telefon ve sunucudaki tüm test verileri silinecek. '
+          'Bu işlem GERİ ALINAMAZ.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('İptal'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Evet, sil'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    // 1) Sunucu wipe — fail olsa da local'e devam et
+    final api = ref.read(apiServiceProvider);
+    final serverOk = await api.wipeServerData();
+
+    // 2) Local wipe (controller state + SharedPreferences)
+    await ref.read(beaconControllerProvider.notifier).wipeAndReset();
+
+    if (!mounted) return;
+    setState(() => _busy = false);
+
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(serverOk
+            ? '✅ Tüm veriler silindi (telefon + sunucu)'
+            : '⚠️ Telefon temizlendi, sunucuya ulaşılamadı (ağı kontrol et).'),
+        backgroundColor: serverOk ? Colors.green : Colors.orange,
+      ),
     );
   }
 }

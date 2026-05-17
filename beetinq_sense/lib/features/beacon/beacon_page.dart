@@ -9,7 +9,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api_service.dart';
 import 'beacon_config.dart';
 import 'beacon_controller.dart';
-import '../../core/positioning/trilateration_engine.dart';
 import '../contact/contact_controller.dart';
 import '../settings/settings_page.dart';
 
@@ -420,10 +419,15 @@ class _BeaconLocationsSheetState extends ConsumerState<_BeaconLocationsSheet> {
                 Expanded(
                   child: TextField(
                     controller: xCtrl,
-                    decoration: const InputDecoration(labelText: 'X (metre)'),
+                    decoration: const InputDecoration(
+                      labelText: 'X (metre, opsiyonel)',
+                      hintText: 'Boşsa otomatik',
+                    ),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
+                    // Türkçe klavyede ondalık ayraç virgül; nokta da kabul.
+                    // Parse aşamasında ',' → '.' normalize edilir.
                     inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
                     ],
                   ),
                 ),
@@ -431,12 +435,24 @@ class _BeaconLocationsSheetState extends ConsumerState<_BeaconLocationsSheet> {
                 Expanded(
                   child: TextField(
                     controller: yCtrl,
-                    decoration: const InputDecoration(labelText: 'Y (metre)'),
+                    decoration: const InputDecoration(
+                      labelText: 'Y (metre, opsiyonel)',
+                      hintText: 'Boşsa otomatik',
+                    ),
                     keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                    ],
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'X ve Y boş bırakılırsa sunucu beacon\'u otomatik bir grid '
+              'pozisyonuna yerleştirir. Konumu admin panelden sürükleyerek düzeltebilirsin.',
+              style: TextStyle(fontSize: 11, color: Colors.grey),
             ),
             const SizedBox(height: 8),
             ElevatedButton.icon(
@@ -444,23 +460,44 @@ class _BeaconLocationsSheetState extends ConsumerState<_BeaconLocationsSheet> {
               label: const Text('Ekle / Güncelle'),
               onPressed: () async {
                 final id = idCtrl.text.trim().toUpperCase();
-                final x = double.tryParse(xCtrl.text.trim());
-                final y = double.tryParse(yCtrl.text.trim());
-                if (id.isEmpty || x == null || y == null) {
+                // ',' → '.' normalize: Türkçe locale virgül, double.tryParse nokta bekler.
+                final x = double.tryParse(xCtrl.text.trim().replaceAll(',', '.'));
+                final y = double.tryParse(yCtrl.text.trim().replaceAll(',', '.'));
+                if (id.isEmpty) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('ID, X ve Y zorunlu.')),
+                    const SnackBar(content: Text('Beacon ID zorunlu.')),
                   );
                   return;
                 }
                 final name = nameCtrl.text.trim();
-                await ctrl.addBeaconLocation(BeaconLocation(
-                  id: id, x: x, y: y,
-                  name: name.isEmpty ? null : name,
-                ));
-                idCtrl.clear();
-                nameCtrl.clear();
-                xCtrl.clear();
-                yCtrl.clear();
+                final messenger = ScaffoldMessenger.of(context);
+                try {
+                  await ctrl.addBeaconLocation(
+                    id: id,
+                    x: x,
+                    y: y,
+                    name: name.isEmpty ? null : name,
+                  );
+                  idCtrl.clear();
+                  nameCtrl.clear();
+                  xCtrl.clear();
+                  yCtrl.clear();
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text(x == null || y == null
+                          ? '✅ Eklendi (otomatik grid). Admin panelden sürükle.'
+                          : '✅ Eklendi (sunucu + telefon).'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  messenger.showSnackBar(
+                    SnackBar(
+                      content: Text('❌ ${e.toString().replaceFirst('Exception: ', '')}'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
             ),
             const Divider(),
@@ -477,7 +514,19 @@ class _BeaconLocationsSheetState extends ConsumerState<_BeaconLocationsSheet> {
                 subtitle: Text('x: ${l.x}m  y: ${l.y}m'),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red, size: 20),
-                  onPressed: () => ctrl.removeBeaconLocation(l.id),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    try {
+                      await ctrl.removeBeaconLocation(l.id);
+                    } catch (e) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text('❌ ${e.toString().replaceFirst('Exception: ', '')}'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                    }
+                  },
                 ),
               )),
             const SizedBox(height: 16),

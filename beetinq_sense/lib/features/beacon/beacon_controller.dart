@@ -313,6 +313,55 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _contactEnabledCache = enabled;
   }
 
+  /// "Tüm test verisini sil" butonu çağırır. Mevcut session save EDİLMEZ
+  /// (kullanıcı test datasını siliyor zaten). Sıralı:
+  /// 1. Subscription'ları, timer'ları durdur
+  /// 2. Advertiser stop, contact map reset
+  /// 3. SharedPreferences data anahtarlarını sil
+  /// 4. State'i initial'e döndür
+  /// 5. Foreground service durdur
+  Future<void> wipeAndReset() async {
+    _log('🗑️ wipeAndReset()');
+
+    _statusPollTimer?.cancel();
+    _statusPollTimer = null;
+    _rangingWatchdogTimer?.cancel();
+    _rangingWatchdogTimer = null;
+    _scanPowerTimer?.cancel();
+    _scanPowerTimer = null;
+    _btStateSub?.cancel();
+    _btStateSub = null;
+
+    await _rangingSub?.cancel();
+    _rangingSub = null;
+    await _monitoringSub?.cancel();
+    _monitoringSub = null;
+
+    await ref.read(contactAdvertiserProvider).stop();
+    ref.read(contactControllerProvider.notifier).reset();
+
+    _rows.clear();
+    _filters.clear();
+    _top3Stable = const [];
+    _lastValidBeaconTime = null;
+    _lastBeaconActivity = null;
+    _isLowPowerMode = false;
+    _locationLossCount = 0;
+    _initInProgress = false;
+    _isRestartingRanging = false;
+
+    await _prefs.wipeAllData();
+
+    try {
+      await _service.stopForegroundService();
+      await _service.stopAll();
+    } catch (e) {
+      _log('wipe stopAll uyarı: $e');
+    }
+
+    state = BeaconState.initial();
+  }
+
   /// Contact tracing beacon'ları için callback (Task 1.5.5).
   /// ContactController encounter map'ini günceller, eşik aşılırsa
   /// API tetiklemesi 1.5.7'deki hook üzerinden yapılır.
@@ -521,6 +570,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // Kuyrukta bekleyenleri göndermeyi dene
       _api.flushQueue().ignore();
       _api.flushContactQueue().ignore();
+
+      // Backend'deki beacon koordinatlarını local cache'e indir.
+      // Kullanıcı admin panelinde değiştirdiyse mobil otomatik güncellensin.
+      // Fail ise local cache (varsa) kullanılmaya devam eder.
+      syncBeaconLocationsFromBackend().ignore();
 
       // Contact tracing (Task 1.5.7): eşik aşıldığında API'ye gönderilsin.
       final reporterDeviceId = await _deviceId.getDeviceId();
@@ -761,8 +815,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             final key = '$uuid-$major-$minor';
 
             final filter = _filters.putIfAbsent(key, () {
+              // medianWindow=5: 3 örnekli median tek-iki spike'ı geçirir;
+              // 5 örnekli daha sağlam (gecikme +~200ms ihmal edilebilir).
               return RssiFilter(
-                medianWindow: 3,
+                medianWindow: 5,
                 kalmanQ: 0.5,
                 kalmanErrorMeasure: 20,
                 kalmanErrorEstimate: 30,
@@ -1203,22 +1259,76 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
     _log('Fingerprint Kaydedildi: "$name" (${rssiSnapshot.length} beacon ile)');
     state = state.copyWith(knownFingerprints: List.unmodifiable(fingerprintEngine.knownFingerprints));
+
+    // Backend'e stand olarak da kaydet — mental model: fingerprint = stand.
+    // Idempotent: aynı isimle ikinci çağrı backend'de mevcut'u döndürür,
+    // duplicate oluşturmaz. Backend offline ise sessizce false döner;
+    // fingerprint zaten lokal kaydedildi, demoyu bozmaz.
+    // Fire-and-forget: fingerprint UX'ini bekletmemek için unawaited.
+    unawaited(_registerStandFromFingerprint(name));
     return true;
   }
 
-  // --- Admin: BeaconLocation Yönetimi ---
+  Future<void> _registerStandFromFingerprint(String name) async {
+    try {
+      final ok = await _api.registerStand(name: name);
+      if (ok) {
+        _log('✅ Stand backend\'e kaydedildi (fingerprint→stand): "$name"');
+      } else {
+        _log('⚠️ Stand backend kaydı başarısız: "$name" (fingerprint lokal kaydedildi)');
+      }
+    } catch (e) {
+      _log('⚠️ Stand backend kaydı exception: $e');
+    }
+  }
 
-  Future<void> addBeaconLocation(BeaconLocation location) async {
-    final updated = [
-      ...state.beaconLocations.where((l) => l.id != location.id),
-      location,
-    ];
-    await _prefs.saveBeaconLocations(updated);
-    _log('BeaconLocation eklendi: ${location.id} (x:${location.x}, y:${location.y})');
-    state = state.copyWith(beaconLocations: List.unmodifiable(updated));
+  // --- Admin: BeaconLocation Yönetimi ---
+  //
+  // Tek kaynak: backend. Mobilde yapılan ekle/sil işlemleri önce backend'e
+  // yansır, başarılıysa local cache (SharedPreferences + state) güncellenir.
+  // Backend fail ise exception fırlatılır → UI snackbar ile kullanıcıyı bilgilendirir.
+
+  /// Beacon ekle/güncelle. x,y null verilirse backend auto-grid (1m aralıklı)
+  /// pozisyon atar; admin panelden drag-drop ile düzeltilir. Başarılı POST
+  /// sonrası backend'den lokal cache sync edilir, böylece backend'in atadığı
+  /// gerçek (x,y) lokale yansır.
+  Future<void> addBeaconLocation({
+    required String id,
+    double? x,
+    double? y,
+    String? name,
+  }) async {
+    final parts = id.split('-');
+    if (parts.length < 7) {
+      throw Exception('Beacon id formatı geçersiz: $id');
+    }
+    final uuid = parts.sublist(0, 5).join('-');
+    final major = int.tryParse(parts[5]) ?? 0;
+    final minor = int.tryParse(parts[6]) ?? 0;
+
+    final ok = await _api.registerBeaconLocation(
+      uuid: uuid,
+      major: major,
+      minor: minor,
+      x: x,
+      y: y,
+      name: name,
+    );
+    if (!ok) {
+      throw Exception(
+        'Sunucuya kaydedilemedi. Ağı veya backend\'i kontrol et.',
+      );
+    }
+    // Backend auto-grid uyguladıysa lokal cache'i tazele
+    await syncBeaconLocationsFromBackend();
+    _log('BeaconLocation eklendi: $id (x:${x ?? "auto"}, y:${y ?? "auto"})');
   }
 
   Future<void> removeBeaconLocation(String id) async {
+    final ok = await _api.deleteBeaconLocation(id);
+    if (!ok) {
+      throw Exception('Sunucudan silinemedi. Ağı kontrol et.');
+    }
     final updated = state.beaconLocations.where((l) => l.id != id).toList();
     await _prefs.saveBeaconLocations(updated);
     state = state.copyWith(beaconLocations: List.unmodifiable(updated));

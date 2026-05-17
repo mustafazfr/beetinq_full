@@ -291,6 +291,21 @@ class ApiService {
   // DİĞER ENDPOINT'LER
   // ─────────────────────────────────────────────────────────────────────────
 
+  /// Test/demo wipe — backend'deki tüm visit/contact/stand/beacon kayıtlarını
+  /// siler. Settings page'deki "Tüm test verisini sil" butonu kullanır.
+  /// 200 başarı, başka her şey hata.
+  Future<bool> wipeServerData() async {
+    try {
+      final response = await http
+          .post(Uri.parse('$_baseUrl/admin/wipe'))
+          .timeout(const Duration(seconds: 15));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      debugPrint('❌ [API] wipeServerData hatası: $e');
+      return false;
+    }
+  }
+
   /// Beacon koordinatlarını backend'den çek.
   /// Backend endpoint: GET /api/beacons/locations?eventId=xxx
   Future<List<Map<String, dynamic>>> fetchBeaconLocations({
@@ -315,17 +330,41 @@ class ApiService {
     return [];
   }
 
+  /// Backend'den beacon kaydını sil. id format: "UUID-major-minor".
+  Future<bool> deleteBeaconLocation(String id) async {
+    try {
+      final encoded = Uri.encodeComponent(id);
+      final response = await http
+          .delete(Uri.parse('$_baseUrl/beacons/$encoded'))
+          .timeout(const Duration(seconds: 10));
+      // 200 başarılı, 404 da "yok zaten" → success say (idempotent silme)
+      return response.statusCode == 200 || response.statusCode == 404;
+    } catch (e) {
+      debugPrint('❌ [API] deleteBeaconLocation hatası: $e');
+      return false;
+    }
+  }
+
   /// Backend'e bir beacon konumu kaydet (admin modu).
+  ///
+  /// x ve y null gönderilebilir; backend bu durumda auto-grid (1m aralıklı)
+  /// bir pozisyon atar. Mobilde "konum bilmiyorum, sen koy" akışı için.
+  ///
+  /// 409 (zaten kayıtlı) durumunda:
+  ///   - x veya y verilmişse: PATCH /api/beacons/:id ile günceller
+  ///     (kullanıcı "Ekle / Güncelle" butonuna sadık kal).
+  ///   - x ve y null ise: zaten var, üzerine yazma — true döndür.
   Future<bool> registerBeaconLocation({
     required String uuid,
     required int major,
     required int minor,
-    required double x,
-    required double y,
+    double? x,
+    double? y,
     String? name,
     int? standId,
     String eventId = 'default',
   }) async {
+    final id = '${uuid.toUpperCase()}-$major-$minor';
     try {
       final response = await http
           .post(
@@ -335,17 +374,67 @@ class ApiService {
               'uuid': uuid.toUpperCase(),
               'major': major,
               'minor': minor,
-              'x': x,
-              'y': y,
+              if (x != null) 'x': x,
+              if (y != null) 'y': y,
               if (name != null) 'name': name,
               if (standId != null) 'standId': standId,
               'eventId': eventId,
             }),
           )
           .timeout(const Duration(seconds: 10));
-      return response.statusCode >= 200 && response.statusCode < 300;
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return true;
+      }
+
+      // 409 = beacon zaten kayıtlı. Kullanıcı x,y verdiyse PATCH ile güncelle.
+      if (response.statusCode == 409) {
+        if (x == null && y == null) return true; // sadece "zaten var", boş override etme
+        final encoded = Uri.encodeComponent(id);
+        final patchResp = await http
+            .patch(
+              Uri.parse('$_baseUrl/beacons/$encoded'),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                if (x != null) 'x': x,
+                if (y != null) 'y': y,
+              }),
+            )
+            .timeout(const Duration(seconds: 10));
+        return patchResp.statusCode >= 200 && patchResp.statusCode < 300;
+      }
+
+      debugPrint('⚠️ [API] Beacon kaydı status ${response.statusCode}: ${response.body}');
+      return false;
     } catch (e) {
       debugPrint('❌ [API] Beacon kaydı başarısız: $e');
+      return false;
+    }
+  }
+
+  /// Backend'e stand kaydet (idempotent: aynı isim varsa onu döndürür).
+  /// Mobilden "fingerprint kaydet = stand oluştur" akışı için kullanılır.
+  /// x,y null → backend auto-grid pozisyon atar.
+  Future<bool> registerStand({
+    required String name,
+    double? x,
+    double? y,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$_baseUrl/stands'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'name': name,
+              if (x != null) 'x': x,
+              if (y != null) 'y': y,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (e) {
+      debugPrint('❌ [API] Stand kaydı başarısız: $e');
       return false;
     }
   }

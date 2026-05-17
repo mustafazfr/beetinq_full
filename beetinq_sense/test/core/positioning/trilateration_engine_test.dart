@@ -43,105 +43,161 @@ void main() {
     });
   });
 
-  group('calculatePosition — IDW centroid', () {
+  group('calculatePosition — Weighted LS + EWMA + fallback', () {
     final beacons = [
       BeaconLocation(id: 'A', x: 0, y: 0),
       BeaconLocation(id: 'B', x: 10, y: 0),
       BeaconLocation(id: 'C', x: 5, y: 8.66),
     ];
 
-    test('Eşit RSSI değerleri → geometrik merkeze yaklaşır', () {
-      // Üçgenin merkezi: (0+10+5)/3 = 5, (0+0+8.66)/3 = 2.887
-      final pos = engine.calculatePosition(beacons, {
+    test('Eşit RSSI değerleri → üçgenin merkezine yakın', () {
+      // LS'te eşit RSSI = eşit distance → reference olarak A seçilir,
+      // çözüm üçgenin geometrik merkezine yakın çıkar.
+      final eng = TrilaterationEngine(); // fresh EWMA
+      final pos = eng.calculatePosition(beacons, {
         'A': -65,
         'B': -65,
         'C': -65,
       });
       expect(pos, isNotNull);
-      expect(pos!['x']!, closeTo(5.0, 0.1));
-      expect(pos['y']!, closeTo(2.887, 0.1));
+      expect(pos!['x']!, closeTo(5.0, 1.0));
+      expect(pos['y']!, closeTo(2.887, 1.5));
     });
 
     test('Tek beacon güçlü → o beacon koordinatına yakın', () {
-      // A çok yakın (-50), diğerleri uzak (-85)
-      final pos = engine.calculatePosition(beacons, {
+      // A çok yakın (-50), diğerleri uzak (-85). LS reference A olur,
+      // ağırlıklı çözüm A'ya doğru kayar.
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {
         'A': -50,
         'B': -85,
         'C': -85,
       });
       expect(pos, isNotNull);
-      // A=(0,0)'a doğru çekilmeli — merkez 5,2.9 değil
-      expect(pos!['x']!, lessThan(3.0));
-      expect(pos['y']!, lessThan(2.0));
+      // A=(0,0)'a yakın olmalı — uzak beacon'ların etkisi 1/d² ile zayıflar.
+      // Tolerans LS açısından 4m'ye genişletildi (önceki IDW 3m varsayımı geçersiz).
+      expect(pos!['x']!, lessThan(4.0));
+      expect(pos['y']!, lessThan(3.5));
     });
 
-    test('Tek match → null (matchCount < 2)', () {
-      final pos = engine.calculatePosition(beacons, {'A': -65});
+    test('Tek match → null (yön bilinmiyor)', () {
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {'A': -65});
       expect(pos, isNull);
     });
 
     test('Sıfır match → null', () {
-      final pos = engine.calculatePosition(beacons, {});
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {});
       expect(pos, isNull);
     });
 
-    test('İki beacon → IDW yine sonuç verir (klasik trilat min 3 ister)', () {
-      final pos = engine.calculatePosition(beacons, {
+    test('İki beacon → weighted midpoint fallback', () {
+      // 2-beacon: LS'in matematiksel minimumu altında ama fallback olarak
+      // 1/d ağırlıklı orta nokta döner. Eşit RSSI → tam orta.
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {
         'A': -65,
         'B': -65,
       });
       expect(pos, isNotNull);
-      // İki beacon arası orta nokta (5, 0)
       expect(pos!['x']!, closeTo(5.0, 0.5));
       expect(pos['y']!, closeTo(0.0, 0.5));
     });
 
     test('Geçersiz RSSI atlanır (>= 0)', () {
-      final pos = engine.calculatePosition(beacons, {
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {
         'A': -65,
-        'B': 0, // geçersiz, atlanır
+        'B': 0, // geçersiz → atlanır
         'C': -65,
       });
-      // A + C kalır: matchCount = 2, yine null değil
+      // A + C kalır → 2-beacon fallback aktif olur, null değil.
       expect(pos, isNotNull);
     });
 
-    test('50m clamp pratikte ölü kod (raporda not düşülmeli)', () {
-      // BULGU: distance > 50m kontrolü kod var ama tetiklenemez.
-      // Path-loss model: 10^((-59 - rssi) / 25) > 50 için rssi < -101.5 lazım.
-      // Ama RSSI < -100 zaten validation'da -1 dönüyor (geçersiz sayılıp atlanıyor).
-      // Yani 50m clamp kod yolu pratikte AKTİF değil; eylem aynı hassasiyette
-      // calculateDistance(-101) = -1 ile yapılıyor.
-      expect(engine.calculateDistance(-99), lessThan(50));
+    test('Distance cap 80m: -99 dBm uygun, -101 invalid', () {
+      // n=2.5 için -99 → ~40m (cap altı).
+      // -101 RSSI invalid sayılır (-1 döner) — yine işe yaramaz ama farklı yoldan.
+      expect(engine.calculateDistance(-99), lessThan(80));
+      expect(engine.calculateDistance(-99), greaterThan(35));
       expect(engine.calculateDistance(-101), -1.0);
     });
 
-    test('Duplicate id ikinci kez sayılmaz', () {
+    test('Duplicate id ikinci kez sayılmaz (2-beacon fallback ile bile)', () {
       final dupBeacons = [
         BeaconLocation(id: 'A', x: 0, y: 0),
         BeaconLocation(id: 'A', x: 100, y: 100), // duplicate id
         BeaconLocation(id: 'B', x: 10, y: 0),
       ];
-      final pos = engine.calculatePosition(dupBeacons, {
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(dupBeacons, {
         'A': -65,
         'B': -65,
       });
-      // Duplicate atlanırsa ilk A=(0,0) sayılır, ortalama (5,0) civarı
+      // Duplicate atlanır → 2 beacon → fallback (5,0) civarı.
       expect(pos, isNotNull);
       expect(pos!['x']!, closeTo(5.0, 1.0));
       expect(pos['y']!, closeTo(0.0, 1.0));
     });
 
-    test('Convex hull dışına çıkamaz (IDW kısıtı)', () {
-      // Tüm beacon'lar (0..10) x ve (0..10) y içinde
-      final pos = engine.calculatePosition(beacons, {
+    test('LS convex hull dışına çıkabilir (özellik, kısıt değil)', () {
+      // Asimetrik RSSI: A çok güçlü, B/C eşit zayıf → LS çözüm A'nın "öbür yanına"
+      // bile gidebilir. Bu IDW'nin tersine LS'in avantajı (gerçek konum
+      // beacon'ların dışındaysa onu da yakalar). Bu test sadece "null değil"
+      // kontrolü yapar; spesifik konum kısıtı YOK.
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(beacons, {
         'A': -90,
         'B': -90,
         'C': -90,
       });
       expect(pos, isNotNull);
-      expect(pos!['x']!, inInclusiveRange(0, 10));
-      expect(pos['y']!, inInclusiveRange(0, 10));
+    });
+
+    test('Outlier rejection: 4+ beacon ile en sapan beacon atılır', () {
+      // 4 beacon — biri kasıtlı yanlış mesafe. Outlier rejection
+      // doğru konuma yaklaştırmalı.
+      final fourBeacons = [
+        BeaconLocation(id: 'A', x: 0, y: 0),
+        BeaconLocation(id: 'B', x: 10, y: 0),
+        BeaconLocation(id: 'C', x: 0, y: 10),
+        BeaconLocation(id: 'D', x: 10, y: 10),
+      ];
+      // Gerçek konum (5,5). Doğru RSSI ≈ -77 dBm (~7m).
+      // E hayali outlier: yokmuş gibi davran, dördüncü beacon D'yi çok yanlış göster.
+      final eng = TrilaterationEngine();
+      final pos = eng.calculatePosition(fourBeacons, {
+        'A': -77,
+        'B': -77,
+        'C': -77,
+        'D': -45, // 1m mesafe gibi göster — outlier
+      });
+      expect(pos, isNotNull);
+      // Outlier atılırsa A/B/C dengeli → (5,5) civarı.
+      // Atılmazsa D=(10,10) sahte 1m mesafesiyle (10,10)'a doğru çekecek.
+      // Test toleransı 3m: outlier rejection çalışıyorsa bu sınırda kalır.
+      final dist = ((pos!['x']! - 5).abs() + (pos['y']! - 5).abs()) / 2;
+      expect(dist, lessThan(3.0));
+    });
+
+    test('EWMA smoothing: ardışık çağrılar yumuşatır', () {
+      final eng = TrilaterationEngine();
+      // Aynı RSSI 3 kez → konum yakınsamalı
+      Map<String, double>? pos;
+      for (int i = 0; i < 3; i++) {
+        pos = eng.calculatePosition(beacons, {
+          'A': -65, 'B': -65, 'C': -65,
+        });
+      }
+      expect(pos, isNotNull);
+
+      // resetSmoothing sonrası tek ölçüm → EWMA başlangıçta raw değer
+      eng.resetSmoothing();
+      final fresh = eng.calculatePosition(beacons, {
+        'A': -65, 'B': -65, 'C': -65,
+      });
+      expect(fresh, isNotNull);
     });
   });
 

@@ -110,15 +110,21 @@ class FingerprintEngine {
     _knownFingerprints.removeWhere((fp) => fp.id == id);
   }
 
-  /// KNN (K-Nearest Neighbors) Mantığı - K=3, Majority Vote
+  /// KNN (K-Nearest Neighbors) Mantığı - K=3, Inverse-Distance Weighted Voting
   ///
   /// 1. Tüm fingerprint'lere olan Öklid mesafesini hesapla
   /// 2. En yakın K=3 tanesini al (hepsi threshold altında olmalı)
-  /// 3. Bu 3 aday arasında hangi konum adı daha çok geçiyorsa onu döndür
-  ///    (Tie-break: toplam skorun en düşük olduğu kazanır)
+  /// 3. Her aday için 1/(score+ε) ağırlığı hesapla; aynı konum adı altında topla.
+  ///    Sigma'ya eklenen ε = 0.5 (sıfıra bölme koruması + tam eşleşme aşırı
+  ///    dominasyonunu yumuşatma).
+  /// 4. En yüksek ağırlık toplamına sahip konum adı kazanır.
   ///
-  /// K=1'e göre avantajı: Tek bir gürültülü ölçüm sonucu yanlış konuma
-  /// atlamak yerine çoğunluk oyuyla daha stabil karar verir.
+  /// Eşit oy (her birinde 1 aday) durumunda en düşük skorlu aday otomatik
+  /// kazanır çünkü ağırlığı en yüksek.
+  ///
+  /// İyileştirme: önceki version eşit oy bazlı majority vote yapıyordu;
+  /// yakın aday ile uzak aday eşit söz hakkına sahipti. Sentetik testte
+  /// 1m aralıklı noktalarda %66 → ~%80+ accuracy hedefi.
   FingerprintMatch? findNearestMatch(Map<String, int> currentScan, {double threshold = 15.0, int k = 3}) {
     if (_knownFingerprints.isEmpty) return null;
 
@@ -137,41 +143,47 @@ class FingerprintEngine {
     // 2. En yakın K tanesini al (K'dan az aday varsa hepsini al)
     final topK = candidates.take(k).toList();
 
-    // 3. Majority Vote: Her konum adı için oy say + toplam skor biriktir
-    final Map<String, int> votes = {};
+    // 3. Inverse-distance weighted voting: w = 1/(score+ε).
+    // ε=0.5 → score=0 olduğunda ağırlık 2 (tam dominasyon değil).
+    const epsilon = 0.5;
+    final Map<String, double> weightedVotes = {};
+    final Map<String, int> rawVoteCount = {};
     final Map<String, double> totalScores = {};
 
     for (final m in topK) {
-      // "#1", "#2" gibi suffix'leri soy — majority vote için base adı kullan
+      // "#1", "#2" gibi suffix'leri soy — voting için base adı kullan.
       final name = m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '');
-      votes[name] = (votes[name] ?? 0) + 1;
+      final w = 1.0 / (m.score + epsilon);
+      weightedVotes[name] = (weightedVotes[name] ?? 0) + w;
+      rawVoteCount[name] = (rawVoteCount[name] ?? 0) + 1;
       totalScores[name] = (totalScores[name] ?? 0) + m.score;
     }
 
-    // En çok oy alan konumu bul; eşitlik durumunda en düşük toplam skor kazanır
+    // En yüksek ağırlık toplamı kazanır; ağırlık eşitliğinde düşük toplam skor.
     String? winner;
-    int maxVotes = 0;
+    double maxWeight = -1;
     double winnerScore = double.infinity;
 
-    votes.forEach((name, voteCount) {
-      if (voteCount > maxVotes ||
-          (voteCount == maxVotes && (totalScores[name] ?? 0) < winnerScore)) {
+    weightedVotes.forEach((name, weight) {
+      final score = totalScores[name] ?? 0;
+      if (weight > maxWeight ||
+          (weight == maxWeight && score < winnerScore)) {
         winner = name;
-        maxVotes = voteCount;
-        winnerScore = totalScores[name] ?? 0;
+        maxWeight = weight;
+        winnerScore = score;
       }
     });
 
     if (winner == null) return null;
 
-    // Kazanan konumun en iyi (en düşük skorlu) fingerprint'ini döndür
+    // Kazanan konumun en iyi (en düşük skorlu) fingerprint'ini döndür.
     final best = topK.firstWhere(
           (m) => m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '') == winner,
     );
     return FingerprintMatch(
       fingerprint: best.fingerprint,
       score: best.score,
-      voteCount: maxVotes,
+      voteCount: rawVoteCount[winner] ?? 1,
       k: topK.length,
     );
   }
