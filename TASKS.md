@@ -112,12 +112,12 @@ Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her gö
 - [x] `RETENTION_DAYS` env ile override edilebilir.
 - Commit: `feat: 14 günlük retention cron job`
 
-### 2.3 PDF Rapor Export
-- [x] `pdfkit ^0.18.0` kuruldu.
-- [x] `GET /api/stats/report.pdf?from=&to=` — başlık + özet + dwell + contact.
-- [x] Admin panele "Rapor İndir (PDF)" butonu eklendi.
-- [ ] Heatmap snapshot — scope dışı bırakıldı (headless canvas gerektiriyor).
-- Commit: `feat: PDF analiz raporu`
+### 2.3 PDF Rapor Export — ASKIYA ALINDI
+- [~] `pdfkit ^0.18.0` kuruldu (paket hâlâ package.json'da, kullanım kaldırıldı).
+- [~] `GET /api/stats/report.pdf?from=&to=` — endpoint kaldırıldı.
+- [~] Admin panel "Rapor İndir (PDF)" butonu — kaldırıldı.
+- Not: Trilaterasyon iyileştirmesi tamamlanınca tekrar ele alınacak.
+- Commit (kaldırma): `chore: PDF rapor özelliği askıya alındı`
 
 ### 2.4 Tarih Aralığı Filtresi (Admin Panel)
 - [x] Panel üstü date range input + Uygula/Temizle butonları.
@@ -129,6 +129,38 @@ Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her gö
 - [x] Stand dropdown `stands` listesinden dinamik populate.
 - [x] `POST /api/beacons` ve `DELETE /api/beacons/:id` smoke test geçti.
 - Commit: `feat: admin panelde beacon yönetimi`
+
+### 2.6 Beacon Kalibrasyonu — DENENDİ, GERİ ALINDI
+- [x] Manuel ekleme formu kaldırıldı; beacon listesi sadece otomatik mobilden gelir.
+- [x] Canvas'ta beacon drag-drop (mor üçgen, etiket: major/minor[·name]).
+- [x] Backend: `UpdateBeaconDto` + `PATCH /api/beacons/:id`.
+- [x] Heatmap toggle (showHeatmap state, localStorage).
+- [~] Mesafe kısıtları + gradient descent: kullanıcı reddetti (mobilde x,y zaten girilirse overlap). Geri alındı 2.7'de.
+- Commit: `feat: beacon kalibrasyonu - mesafe kısıtları + gradient descent` (sonra revert)
+
+### 2.8 Gerçek Trilaterasyon (LS + EWMA)
+- [x] `TrilaterationEngine.calculatePosition` — IDW centroid yerine **Linear Least Squares**. Reference olarak en güçlü RSSI'lı beacon seçilir, kuadratik terimler düşürülerek 2x2 normal denklem analitik invert ile çözülür.
+- [x] EWMA (alpha=0.3) konum yumuşatma + `resetSmoothing()` API'si.
+- [x] 3+ beacon zorunlu (matematiksel asgari). Daha azı varsa null → controller fingerprint fallback'ine düşer.
+- [x] Singular durum (collinear beacon'lar, det≈0) ve NaN/Infinity koruması.
+- [x] `flutter analyze` temiz.
+- Saha testi notu: Pi beacon ile (0,0) referansta hata ölçümü tezde grafikle kıyaslanabilir.
+- Commit: `feat: LS trilaterasyon + EWMA pozisyon yumuşatma`
+
+### 2.7 Mobil-First Beacon/Stand Akışı
+- [x] Admin paneldeki MESAFE KISITLARI panel + gradient descent kodu silindi (constraints state, fonksiyonlar, draw çizgileri).
+- [x] Admin'de "Stand Ekle" formu kaldırıldı (`addingMode`, `addStandMode`, `saveStand` silindi). Stand'lar sadece mobilden gelir.
+- [x] BEACONS panel'ine "🎯 Otomatik Yerleştir (Grid)" butonu eklendi (paralel PATCH).
+- [x] Backend `CreateBeaconDto` x,y opsiyonel + `BeaconsService.nextAutoPosition` (1m grid, 5'lik satır).
+- [x] Backend `CreateStandDto` x,y opsiyonel + `StandsService.create` idempotent (aynı isim → mevcut'u döndür) + auto-grid.
+- [x] Mobil `ApiService.registerBeaconLocation` x,y nullable + 409→PATCH fallback.
+- [x] Mobil `ApiService.registerStand` yeni metod (idempotent backend'e POST).
+- [x] Mobil `BeaconController.saveCurrentFingerprint` sonrası `unawaited(_registerStandFromFingerprint)` — fingerprint=stand mental modeli.
+- [x] Mobil `BeaconController.addBeaconLocation` imza değişti: `BeaconLocation` yerine düz parametreler, x,y nullable, POST sonrası `syncBeaconLocationsFromBackend`.
+- [x] Mobil `_BeaconLocationsSheet` UI: x,y "opsiyonel" işaretiyle, boşsa hint "auto-grid".
+- [x] Backend testi (curl): stand idempotent ✅, beacon auto-grid (1,1)→(2,1) ✅, 409 ✅, PATCH update ✅.
+- [x] `flutter analyze` temiz (1 pre-existing info), `npm run build` temiz.
+- Commit: `feat: mobil-first beacon/stand akışı + auto-grid yerleşim`
 
 ---
 
@@ -162,3 +194,49 @@ Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her gö
 ## 🐛 Bilinen Sorunlar / Sonra Bakılacaklar
 
 - (örnek) Kalman filter ilk 3-4 event'te stabilize oluyor, ilk ziyaret yanlış olabilir — düşük öncelik.
+
+---
+
+## 🚀 2026-05-18 İyileştirme Paketi (Saha Testi Öncesi)
+
+Tek seans kapsamlı incelemenin çıktıları. Bug yok; algoritma + dashboard zenginleştirmesi.
+
+### 2.9 Trilateration İyileştirmeleri (Weighted LS + Outlier Rejection + Fallback)
+- [x] `_weightedLeastSquares` — 1/d² ağırlık; uzak beacon LS'i artık bozmuyor.
+- [x] Leave-one-out outlier rejection: 4+ beacon ile en sapan beacon atılıp tekrar çözülüyor.
+- [x] 2-beacon weighted midpoint fallback — kenar/zayıf alanlarda konum hiç kesilmiyor.
+- [x] Adaptive EWMA (α 0.15-0.6 jump'a göre rampa) — hareketsizde stabil, hareketle responsive.
+- [x] Distance cap 50→80m (n=2 senaryosu için future-proof).
+- Sandbox simulasyon (test/simulation/positioning_simulation_test.dart):
+  - σ=3 dBm single-sample median: **1.10m → 0.77m** (%30 iyileşme)
+  - σ=3 dBm 3 sample + EWMA median: 0.74m → **0.64m**
+  - σ=6 dBm (gürültülü) p95: **10.36m → 3.71m** (%64 outlier rejection sayesinde)
+  - Kenar simülasyonu p95: **2.97m → 2.02m** (%32)
+- Commit: `feat(positioning): weighted LS + outlier rejection + 2-beacon fallback`
+
+### 2.10 KNN Inverse-Distance Weighted Voting
+- [x] Eşit majority vote yerine w=1/(score+0.5) ağırlıklı oy. Yakın aday daha çok söz hakkı.
+- [x] Tie-break: ağırlık eşitse düşük toplam skor kazanır.
+- Commit: `feat(fingerprint): KNN inverse-distance weighted voting`
+
+### 2.11 RSSI Filter — Median Window 3→5
+- [x] BeaconController'da `medianWindow=5` (spike'lara karşı daha sağlam, gecikme +~200ms ihmal).
+- Commit: `feat(filter): RSSI median window 5'e yükseltildi`
+
+### 2.12 Dashboard Genişletmesi
+- [x] Backend yeni endpoint'ler:
+  - `GET /api/stats/hourly` — saatlik trafik (24 kova)
+  - `GET /api/stats/active?minutes=5` — şu an aktif cihaz
+  - `GET /api/stats/sources` — fingerprint/trilateration/unknown dağılımı
+  - `GET /api/stats/dwell-distribution` — 5 kova histogram
+  - `GET /api/stats/visits.csv` — UTF-8 BOM + CRLF, Excel uyumlu
+- [x] Heatmap aggregation: trilateration noktaları 0.5m grid'e quantize edilip count ile gruplanıyor (önceden count=1 sabitle gönderiliyordu).
+- [x] Dashboard yenileme:
+  - Chart.js (CDN) ile saatlik trafik bar chart, dwell histogram, kaynak doughnut chart
+  - "Şu an aktif" canlı stat-card (pulse animasyonlu)
+  - Toplam temas + benzersiz cihaz kartları
+  - "📥 CSV İndir" butonu (date filter ile)
+  - Contact network mini-graph (canvas force-directed, dependency-free)
+  - Summary endpoint single-source-of-truth (önceden dwellData reduce'tan hesaplanıyordu)
+- [x] Smoke test: tüm endpoint'ler 200, aggregate doğru (3 visit → 2 trilat aynı x,y → count=2).
+- Commit: `feat(dashboard): saatlik trafik, aktif kullanıcı, kaynak dağılımı, contact graph, CSV export`
