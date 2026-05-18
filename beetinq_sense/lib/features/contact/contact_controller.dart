@@ -63,24 +63,25 @@ class ContactController extends Notifier<ContactState> {
 
   /// BeaconController ranging callback'inden çağrılır.
   void onEncounterEvent(String anonId, int rssi, DateTime now) {
+    final sample = RssiSample(rssi, now);
     final existing = _encounters[anonId];
     if (existing == null) {
       _encounters[anonId] = ContactEncounter(
         seenAnonId: anonId,
         firstSeen: now,
         lastSeen: now,
-        rssiSamples: [rssi],
+        samples: [sample],
       );
     } else {
       existing.lastSeen = now;
-      existing.rssiSamples.add(rssi);
+      existing.samples.add(sample);
       // Örneklem balonlaşmasını engelle: son 10 dk'lık worst-case ~600 örnek.
       // Aşarsa baştan kırp.
       const maxSamples = 600;
-      if (existing.rssiSamples.length > maxSamples) {
-        existing.rssiSamples.removeRange(
+      if (existing.samples.length > maxSamples) {
+        existing.samples.removeRange(
           0,
-          existing.rssiSamples.length - maxSamples,
+          existing.samples.length - maxSamples,
         );
       }
     }

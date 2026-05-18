@@ -733,8 +733,19 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         minor: t.minor,
       );
 
+      // iOS background contact tarama için ayrı region monitoring (Task 2.13).
+      // Region monitoring iOS tarafından OS-level sürdürülür: ekran kapalı,
+      // app background hatta swipe-killed olsa bile region'a giriş/çıkışta
+      // sistem uygulamayı uyandırır ve ranging penceresi açılır.
+      // Aksi halde iOS'ta contact scan sadece app foreground'da çalışırdı.
+      final contactRegions = _service.buildIosRegions(
+        identifier: 'ContactTrace-$kContactTracingUuid',
+        uuid: kContactTracingUuid,
+      );
+      final allRegions = [...regions, ...contactRegions];
+
       _monitoringSub?.cancel();
-      _monitoringSub = _service.startMonitoring(regions).listen((result) {
+      _monitoringSub = _service.startMonitoring(allRegions).listen((result) {
         final updated = [result, ...state.monitoringResults].take(50).toList();
         state = state.copyWith(monitoring: true, monitoringResults: updated);
       });

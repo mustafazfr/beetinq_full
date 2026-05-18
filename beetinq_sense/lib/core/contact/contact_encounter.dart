@@ -1,3 +1,14 @@
+/// Tek RSSI ölçümü: değer + ölçüm zamanı.
+///
+/// Encounter aggregation timestamp-aware (Task 2.13): "son N saniye" eşik
+/// kontrolü gerçek zaman penceresinden hesaplanır, sample yoğunluğundan
+/// (low-power mode 5sn/sample vs normal mode 300ms/sample) bağımsız.
+class RssiSample {
+  final int rssi;
+  final DateTime ts;
+  const RssiSample(this.rssi, this.ts);
+}
+
 /// Karşılaşılan bir cihazın RAM'de tutulan encounter kaydı.
 /// anonId = decodeAnonId(major, minor); major/minor collision olursa
 /// iki cihaz aynı encounter'ı paylaşır (kabul edilen risk — Task 1.5.2 notu).
@@ -5,35 +16,47 @@ class ContactEncounter {
   final String seenAnonId;
   final DateTime firstSeen;
   DateTime lastSeen;
-  final List<int> rssiSamples;
+  final List<RssiSample> samples;
   bool reportedAsContact;
 
   ContactEncounter({
     required this.seenAnonId,
     required this.firstSeen,
     required this.lastSeen,
-    List<int>? rssiSamples,
+    List<RssiSample>? samples,
     this.reportedAsContact = false,
-  }) : rssiSamples = rssiSamples ?? <int>[];
+  }) : samples = samples ?? <RssiSample>[];
 
   Duration get duration => lastSeen.difference(firstSeen);
-  int get sampleCount => rssiSamples.length;
+  int get sampleCount => samples.length;
 
   double get avgRssi {
-    if (rssiSamples.isEmpty) return 0;
-    final sum = rssiSamples.fold<int>(0, (a, b) => a + b);
-    return sum / rssiSamples.length;
+    if (samples.isEmpty) return 0;
+    final sum = samples.fold<int>(0, (a, b) => a + b.rssi);
+    return sum / samples.length;
   }
 
-  /// Son [window] süresi içindeki RSSI örneklerinin ortalaması. Son örneklem
-  /// sayısı da döndürülür — tetikleme mantığı için gerekli.
-  /// Notu: örnekler zamanstampsız tutulduğu için window yaklaşık olarak
-  /// son N örnekle hesaplanır (N = window saniye × ~1 örnek/saniye).
+  /// Verilen zaman penceresinin (örn. son 60s) içindeki örneklerin
+  /// ortalama RSSI'si ve sayısı.
+  ///
+  /// Sample yoğunluğundan bağımsız: low-power scan modunda dakikada 12 sample
+  /// gelse de, normal modda 200 sample gelse de eşik kontrolü doğru çalışır.
+  /// Önceki tarih: `rssiSamples.sublist(n - window.inSeconds)` — "1 sample/sn"
+  /// varsayıyordu ve scan period değiştikçe yanlış pencere kesiyordu.
   ({double avg, int count}) recentWindow(Duration window) {
-    if (rssiSamples.isEmpty) return (avg: 0, count: 0);
-    final n = window.inSeconds.clamp(1, rssiSamples.length);
-    final tail = rssiSamples.sublist(rssiSamples.length - n);
-    final sum = tail.fold<int>(0, (a, b) => a + b);
-    return (avg: sum / tail.length, count: tail.length);
+    if (samples.isEmpty) return (avg: 0, count: 0);
+    final cutoff = lastSeen.subtract(window);
+    int sum = 0;
+    int count = 0;
+    // Listeye kronolojik eklendiği için tersten yürüyüp ilk eski sample'a
+    // gelince durmak yeterli (O(window) vs O(N)).
+    for (int i = samples.length - 1; i >= 0; i--) {
+      final s = samples[i];
+      if (s.ts.isBefore(cutoff)) break;
+      sum += s.rssi;
+      count++;
+    }
+    if (count == 0) return (avg: 0, count: 0);
+    return (avg: sum / count, count: count);
   }
 }

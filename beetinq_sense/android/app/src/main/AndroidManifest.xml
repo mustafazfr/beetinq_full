@@ -17,8 +17,18 @@
     <!-- Foreground Service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Android 14+ (API 34): contact tracing (BLUETOOTH_SCAN + ADVERTISE) yapan
+         foreground service için type=connectedDevice tipinde izin de ister.
+         FGS_TYPE_MANIFEST_PERMISSION_MISSING runtime exception önlenir. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
     <!-- Android 13+ (API 33+): Foreground Service bildirimi göstermek için gerekli -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- Pil optimizasyonu muafiyeti talebi (Android 6+).
+         Beetinq saha gününde Xiaomi/Huawei gibi agresif batarya optimizasyonu
+         yapan cihazlarda foreground service'in arka planda öldürülmemesi için
+         kullanıcıdan istenir (whitelist diyalogu). -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <!-- Ağ erişimi — API istekleri için zorunlu. Release APK'da eksik olursa
          tüm HTTP çağrıları sessizce başarısız olur. -->
@@ -62,7 +72,7 @@
             android:name=".BeaconScanService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="location"/>
+            android:foregroundServiceType="location|connectedDevice"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
