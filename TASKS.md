@@ -305,3 +305,16 @@ Commit: `feat(platform): Android 14 FGS tipi + iOS contact region monitoring + b
 | iOS ↔ iOS | ❌ hiç görmez | ✅ service UUID |
 
 Commit: `feat(contact): cross-platform tracing — iOS service UUID + flutter_blue_plus scanner`
+
+### 2.19 Otomatik Backend Keşfi (Subnet Scan)
+- [x] Backend `DiscoveryController` — `GET /api/discover` → `{service: 'beetinq', version: 1, serverTime}`.
+- [x] `@SkipThrottle({ short: true, long: true })` — named throttler bypass (parametresiz çalışmıyor; smoke test bulgusu: 100 paralel istekten 92'si 429 dönüyordu).
+- [x] Mobil `ServerDiscovery` — NetworkInterface IPv4 listesinden /24 subnet çıkar, chunk=32 paralel `GET /api/discover`, ilk başarı kazanır (Completer pattern). Per-request timeout 500ms, overall timeout 6s.
+- [x] `ApiService.tryAutoDiscover` — discovery + setServerUrl entegrasyon.
+- [x] `main.dart` bootstrap: `hasCachedServerUrl` false ise `unawaited(tryAutoDiscover())` — uygulama açılışını bloke etmez.
+- [x] SettingsPage "🔍 Otomatik Bul" butonu — manuel tetikleme, loading spinner, başarı/başarısız snackbar.
+- [x] Smoke test: 254 paralel `/discover` → hepsi 200, latency ~0.4ms. Throttle bypass doğrulandı.
+
+**Sebep**: Saha günü kullanıcı IP yazmasın diye. Subnet scan mDNS'e tercih edildi çünkü fakülte/kurumsal WiFi'lerde multicast genelde blocked. /24 = 254 IP × 32 paralel = ~1-2 saniyede biter.
+
+Commit: `feat(discovery): otomatik backend keşfi (subnet scan + /api/discover)`

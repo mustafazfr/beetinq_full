@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'features/beacon/api_service.dart';
@@ -9,6 +11,12 @@ Future<void> main() async {
   // Runtime server URL: SharedPreferences'tan yükle. Kullanıcı saha günü
   // Ayarlar'dan değiştirebilir; yoksa ApiService default'a düşer.
   await ApiService.loadServerUrl();
+  // Otomatik backend keşfi (Task 2.19): kullanıcı henüz URL ayarlamamışsa
+  // arka planda subnet-scan başlat. Blocking değil — uygulama hemen açılır,
+  // bulununca sonraki API çağrıları yeni URL'i kullanır.
+  if (!ApiService.hasCachedServerUrl) {
+    unawaited(ApiService.tryAutoDiscover());
+  }
   runApp(const ProviderScope(child: BeetinqSenseApp()));
 }
 

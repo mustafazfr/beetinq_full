@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
+import 'server_discovery.dart';
+
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
 class ApiService {
@@ -39,6 +41,10 @@ class ApiService {
   /// HTTP istekleri bu değeri kullanır. Saha günü kullanıcı Ayarlar'dan
   /// değiştirince `setServerUrl` cache'i günceller — restart gerekmez.
   static String? _cachedBaseUrl;
+
+  /// Kullanıcı server URL'sini elle ayarlamış mı? main.dart açılışta
+  /// false ise otomatik subnet-scan discovery tetiklenir.
+  static bool get hasCachedServerUrl => _cachedBaseUrl != null;
 
   /// Açılışta SharedPreferences'tan kullanıcı tanımlı URL'yi yükler.
   /// Yoksa default'a düşer; `_baseUrl` getter'ı senkron kalır.
@@ -113,6 +119,31 @@ class ApiService {
   }
 
   static String get _baseUrl => _cachedBaseUrl ?? _fallbackBaseUrl();
+
+  /// Otomatik keşif (Task 2.19). Cihazın IPv4 subnet'ini tarayıp
+  /// `/api/discover` cevabı veren backend'i bulur ve cache + SharedPreferences'a
+  /// yazar. Saha günü kullanıcı IP girmek zorunda kalmasın diye.
+  ///
+  /// Dönüş: bulunan URL veya null. main.dart açılışta unawaited çağırır,
+  /// Settings page "Otomatik Bul" butonundan da tetiklenir.
+  static Future<String?> tryAutoDiscover({
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    try {
+      final discovery = ServerDiscovery();
+      final url = await discovery.discover(overallTimeout: timeout);
+      if (url == null) {
+        debugPrint('🌐 [API] auto-discover: backend bulunamadı.');
+        return null;
+      }
+      await setServerUrl(url);
+      debugPrint('🌐 [API] auto-discover başarılı: $url');
+      return url;
+    } catch (e) {
+      debugPrint('⚠️ [API] auto-discover hatası: $e');
+      return null;
+    }
+  }
 
   static const String _kOfflineQueueKey = 'offline_visit_queue_v2';
   // v2 suffix: payload formatı değişti (clientEventId eklendi).

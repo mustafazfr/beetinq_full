@@ -36,6 +36,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   // uygulamayı tekrar derlemeden ayarlanabilir.
   final TextEditingController _serverUrlCtrl = TextEditingController();
   bool _serverUrlDirty = false;
+  // Otomatik keşif (Task 2.19): subnet scan in-flight göstergesi.
+  bool _discovering = false;
 
   // Battery optimization status (Task 2.15): Android'de "whitelist" muafiyeti.
   // iOS'ta görünmez. permission_handler ile sorgulanır.
@@ -136,6 +138,50 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     }
 
     if (mounted) setState(() => _busy = false);
+  }
+
+  /// Subnet scan ile backend'i bul. Bulunursa hem text field'ı doldurur
+  /// hem de cache + SharedPreferences'a yazar. Bulamazsa snackbar uyarısı.
+  Future<void> _autoDiscoverServer() async {
+    if (_discovering || _busy) return;
+    setState(() => _discovering = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final url = await ApiService.tryAutoDiscover();
+      if (!mounted) return;
+      if (url != null) {
+        // Settings prefs'i de senkronize tut.
+        await ref.read(settingsPrefsProvider).setServerBaseUrl(url);
+        setState(() {
+          _serverUrlCtrl.text = url;
+          _serverUrlDirty = false;
+          _discovering = false;
+        });
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('🌐 Backend bulundu: $url'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        setState(() => _discovering = false);
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Backend ağda bulunamadı. Aynı WiFi/hotspot\'ta olduğunu '
+              'doğrula veya IP\'yi elle gir.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _discovering = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Otomatik keşif hatası: $e')),
+      );
+    }
   }
 
   Future<void> _saveServerUrl() async {
@@ -267,12 +313,32 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Saha günü WiFi/hotspot değişirse buraya yeni IP veya '
-                          'tam URL yaz. Boş bırakırsan uygulama varsayılan adrese '
-                          '(geliştirici LAN IP\'si) düşer.',
+                          'Saha günü WiFi/hotspot değişirse "Otomatik Bul" butonuna '
+                          'bas veya buraya yeni IP/URL yaz. Boş bırakırsan uygulama '
+                          'varsayılan adrese (geliştirici LAN IP\'si) düşer.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.blue.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _discovering || _busy
+                                ? null
+                                : _autoDiscoverServer,
+                            icon: _discovering
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.search, size: 16),
+                            label: Text(_discovering
+                                ? 'Ağ taranıyor…'
+                                : '🔍 Otomatik Bul (subnet scan)'),
                           ),
                         ),
                         const SizedBox(height: 10),
