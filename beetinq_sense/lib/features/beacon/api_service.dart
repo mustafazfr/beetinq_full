@@ -11,34 +11,108 @@ final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 class ApiService {
   // ── SUNUCU ADRESİ ──────────────────────────────────────────────────────
   //
-  // ❗ SAHA TESTİNDEN ÖNCE YAPILMASI GEREKEN TEK AYAR:
+  // Saha gününde LAN IP/port değişebilir (hotspot ↔ fakülte WiFi).
+  // Uygulamayı yeniden derlemeden Ayarlar ekranından girilebilir hâle
+  // getirildi (Task 2.14): SharedPreferences anahtarı `server_base_url_v1`.
   //
-  //   _lanIp değerini kendi bilgisayarınızın yerel ağ IP'siyle değiştirin.
-  //   Terminalden öğrenmek için:
-  //     macOS/Linux : ifconfig | grep "inet " | grep -v 127
-  //     Windows     : ipconfig | findstr "IPv4"
-  //   Örnek: static const String _lanIp = '192.168.1.42';
+  // Sırayla:
+  //   1. SharedPreferences'tan kullanıcı tarafından girilen tam URL
+  //   2. _defaultLanIp + port (eski davranış)
+  //   3. Production URL (release mode + LAN ayarsız)
+  //   4. Emulator localhost
+  //
+  // `loadServerUrl()` uygulama açılışında main.dart tarafından çağrılır;
+  // sonraki güncellemeler için `setServerUrl()` veya `clearServerUrl()`.
   //
   // Production sunucusu hazır olunca _productionUrl'i aktif edin.
   //
-  static const String _lanIp = '172.20.10.13'; // ← buraya LAN IP yaz
+  static const String _defaultLanIp = '172.20.10.13';
   static const String _productionUrl = 'https://api.beetinq.com/api';
+  static const String _kServerBaseUrlKey = 'server_base_url_v1';
 
   // HTTPS flag — backend HTTPS_ENABLED=true ise burayı da true yap.
   // Self-signed cert iOS/Android'de trust edilmiyorsa cert dosyasını
   // cihaza install etmek gerekir; saha testi için genelde HTTP yeterli.
-  // Gerekirse prefs'e taşınır (Task 1.2 kararı: şimdilik sabit).
   static const bool _useHttps = false;
 
-  static String get _baseUrl {
-    if (_lanIp != 'SAHA_TEST_IP') {
-      final scheme = _useHttps ? 'https' : 'http';
-      return '$scheme://$_lanIp:3000/api';
+  /// Runtime cache. main.dart açılışta `loadServerUrl` çağırır; sonraki
+  /// HTTP istekleri bu değeri kullanır. Saha günü kullanıcı Ayarlar'dan
+  /// değiştirince `setServerUrl` cache'i günceller — restart gerekmez.
+  static String? _cachedBaseUrl;
+
+  /// Açılışta SharedPreferences'tan kullanıcı tanımlı URL'yi yükler.
+  /// Yoksa default'a düşer; `_baseUrl` getter'ı senkron kalır.
+  static Future<void> loadServerUrl() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kServerBaseUrlKey);
+      if (raw != null && raw.trim().isNotEmpty) {
+        _cachedBaseUrl = _normalizeServerUrl(raw.trim());
+      } else {
+        _cachedBaseUrl = null;
+      }
+      debugPrint('🌐 [API] base URL = ${_cachedBaseUrl ?? _fallbackBaseUrl()}');
+    } catch (e) {
+      debugPrint('⚠️ [API] loadServerUrl hatası: $e');
+      _cachedBaseUrl = null;
+    }
+  }
+
+  /// Kullanıcı Ayarlar'dan URL girer (örn. "192.168.1.42",
+  /// "192.168.1.42:3000", "http://172.20.10.13:3000/api"). Hepsi normalize
+  /// edilir → tam http(s)://host:port/api URL'sine dönüştürülür.
+  static Future<void> setServerUrl(String? raw) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (raw == null || raw.trim().isEmpty) {
+      await prefs.remove(_kServerBaseUrlKey);
+      _cachedBaseUrl = null;
+    } else {
+      final normalized = _normalizeServerUrl(raw.trim());
+      await prefs.setString(_kServerBaseUrlKey, normalized);
+      _cachedBaseUrl = normalized;
+    }
+  }
+
+  /// Kullanıcının girdiği değeri tam URL'ye normalize eder:
+  /// - "192.168.1.42"           → "http://192.168.1.42:3000/api"
+  /// - "192.168.1.42:3001"      → "http://192.168.1.42:3001/api"
+  /// - "http://x.y/api"         → olduğu gibi
+  /// - "https://api.beetinq..." → olduğu gibi
+  static String _normalizeServerUrl(String raw) {
+    var v = raw;
+    final hasScheme = v.startsWith('http://') || v.startsWith('https://');
+    if (!hasScheme) {
+      v = 'http://$v';
+    }
+    // Port yoksa :3000 ekle (sadece host:port pattern'inde değişiklik).
+    final uri = Uri.tryParse(v);
+    if (uri == null) return v;
+    var port = uri.port;
+    if (port == 0) port = 3000;
+    var path = uri.path;
+    if (path.isEmpty || path == '/') path = '/api';
+    return Uri(
+      scheme: uri.scheme,
+      host: uri.host,
+      port: port == _defaultUriPortFor(uri.scheme) ? null : port,
+      path: path,
+    ).toString();
+  }
+
+  static int _defaultUriPortFor(String scheme) =>
+      scheme == 'https' ? 443 : 80;
+
+  static String _fallbackBaseUrl() {
+    final scheme = _useHttps ? 'https' : 'http';
+    if (_defaultLanIp.isNotEmpty && _defaultLanIp != 'SAHA_TEST_IP') {
+      return '$scheme://$_defaultLanIp:3000/api';
     }
     if (kReleaseMode) return _productionUrl;
     if (Platform.isAndroid) return 'http://10.0.2.2:3000/api';
     return 'http://localhost:3000/api';
   }
+
+  static String get _baseUrl => _cachedBaseUrl ?? _fallbackBaseUrl();
 
   static const String _kOfflineQueueKey = 'offline_visit_queue_v2';
   // v2 suffix: payload formatı değişti (clientEventId eklendi).

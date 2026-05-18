@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../beacon/api_service.dart';
 import '../beacon/beacon_controller.dart';
@@ -27,20 +31,48 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool? _contactEnabled;
   bool _busy = false;
 
+  // Server URL ayarı (Task 2.14): saha günü hotspot/WiFi değiştiğinde
+  // uygulamayı tekrar derlemeden ayarlanabilir.
+  final TextEditingController _serverUrlCtrl = TextEditingController();
+  bool _serverUrlDirty = false;
+
+  // Battery optimization status (Task 2.15): Android'de "whitelist" muafiyeti.
+  // iOS'ta görünmez. permission_handler ile sorgulanır.
+  bool? _batteryWhitelisted;
+
   @override
   void initState() {
     super.initState();
     _loadInitial();
   }
 
+  @override
+  void dispose() {
+    _serverUrlCtrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadInitial() async {
     final prefs = ref.read(settingsPrefsProvider);
     final loc = await prefs.isLocationEnabled();
     final con = await prefs.isContactEnabled();
+    final url = await prefs.getServerBaseUrl();
+
+    // Battery whitelist sadece Android'de anlamlı; iOS'ta status sorgusu
+    // unknown/denied dönebilir, yine de UI gizleyeceğiz.
+    bool? battery;
+    if (Platform.isAndroid) {
+      final status = await Permission.ignoreBatteryOptimizations.status;
+      battery = status.isGranted;
+    }
+
     if (!mounted) return;
     setState(() {
       _locationEnabled = loc;
       _contactEnabled = con;
+      _serverUrlCtrl.text = url ?? '';
+      _serverUrlDirty = false;
+      _batteryWhitelisted = battery;
     });
   }
 
@@ -95,6 +127,72 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (mounted) setState(() => _busy = false);
   }
 
+  Future<void> _saveServerUrl() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    final raw = _serverUrlCtrl.text.trim();
+    try {
+      // Hem ApiService static cache hem de SettingsPrefs anahtarı güncellenir.
+      // ApiService.setServerUrl SharedPreferences yazıyor; SettingsPrefs ayrı
+      // tutmaya gerek yok, ama future-proof olarak da yazıyoruz.
+      await ApiService.setServerUrl(raw.isEmpty ? null : raw);
+      await ref.read(settingsPrefsProvider).setServerBaseUrl(
+            raw.isEmpty ? null : raw,
+          );
+      if (!mounted) return;
+      setState(() {
+        _serverUrlDirty = false;
+        _busy = false;
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(raw.isEmpty
+              ? '🌐 Sunucu adresi varsayılana döndü.'
+              : '🌐 Sunucu adresi kaydedildi.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('❌ Sunucu adresi kaydedilemedi: $e')),
+      );
+    }
+  }
+
+  /// Mevcut kullanıcıya pil optimizasyonu muafiyeti diyaloğu açar.
+  /// Android'in OS settings'ine yönlendirir. iOS'ta no-op (buton zaten gizli).
+  Future<void> _requestBatteryWhitelist() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final status = await Permission.ignoreBatteryOptimizations.request();
+      if (!mounted) return;
+      setState(() {
+        _batteryWhitelisted = status.isGranted;
+        _busy = false;
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(status.isGranted
+              ? '✅ Pil optimizasyonu kapatıldı.'
+              : '⚠️ Pil optimizasyonu açık. Arka plan ölme riski var.'),
+          backgroundColor: status.isGranted ? Colors.green : Colors.orange,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Pil ayarı hatası: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final loc = _locationEnabled;
@@ -107,13 +205,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: Text(
-                    'Gizlilik ve Veri Toplama',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ),
+                const _SectionHeader('Gizlilik ve Veri Toplama'),
                 Card(
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                   child: Padding(
@@ -140,25 +232,167 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 SwitchListTile(
                   title: const Text('Temas Analizi'),
                   subtitle: const Text(
-                    'Cihazlar arası yakınlık takibi. (Contact tracing modülü henüz aktif değil.)',
+                    'Cihazlar arası yakınlık takibi. iOS\'ta sadece scanner olarak çalışır.',
                   ),
                   value: con,
                   onChanged: _busy ? null : _toggleContact,
                 ),
+
+                // ── Sistem Ayarları ────────────────────────────────────
+                const _SectionHeader('Sistem Ayarları'),
+                Card(
+                  margin: const EdgeInsets.symmetric(horizontal: 12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Sunucu Adresi',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Saha günü WiFi/hotspot değişirse buraya yeni IP veya '
+                          'tam URL yaz. Boş bırakırsan uygulama varsayılan adrese '
+                          '(geliştirici LAN IP\'si) düşer.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.blue.shade900,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _serverUrlCtrl,
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                            labelText: 'IP veya URL',
+                            hintText: '192.168.1.42  ·  192.168.1.42:3000  ·  https://api.example.com/api',
+                          ),
+                          keyboardType: TextInputType.url,
+                          inputFormatters: [
+                            // Boşluk önleyici filtre.
+                            FilteringTextInputFormatter.deny(RegExp(r'\s')),
+                          ],
+                          autocorrect: false,
+                          onChanged: (_) {
+                            if (!_serverUrlDirty) {
+                              setState(() => _serverUrlDirty = true);
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              icon: const Icon(Icons.save_outlined, size: 16),
+                              label: const Text('Kaydet'),
+                              onPressed: _busy || !_serverUrlDirty
+                                  ? null
+                                  : _saveServerUrl,
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _serverUrlCtrl.clear();
+                                        _serverUrlDirty = true;
+                                      });
+                                    },
+                              child: const Text('Temizle'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                if (Platform.isAndroid) ...[
+                  const SizedBox(height: 8),
+                  Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 12),
+                    color: _batteryWhitelisted == true
+                        ? Colors.green.shade50
+                        : Colors.orange.shade50,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                _batteryWhitelisted == true
+                                    ? Icons.battery_full
+                                    : Icons.battery_alert,
+                                color: _batteryWhitelisted == true
+                                    ? Colors.green.shade700
+                                    : Colors.orange.shade800,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Pil Optimizasyonu',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: _batteryWhitelisted == true
+                                      ? Colors.green.shade900
+                                      : Colors.orange.shade900,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _batteryWhitelisted == true
+                                ? 'Uygulama pil optimizasyonundan muaf. Arka plan tarama '
+                                    'kesintisiz çalışır.'
+                                : 'Bazı cihazlar (Xiaomi, Huawei, Samsung) pil optimizasyonu '
+                                    'açıkken arka plan tarayıcıyı sessizce öldürür. Saha '
+                                    'günü kesintisiz tarama için muafiyet ver.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _batteryWhitelisted == true
+                                  ? Colors.green.shade900
+                                  : Colors.orange.shade900,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          if (_batteryWhitelisted != true)
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed:
+                                    _busy ? null : _requestBatteryWhitelist,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange.shade700,
+                                  foregroundColor: Colors.white,
+                                ),
+                                icon: const Icon(Icons.power_settings_new),
+                                label: const Text(
+                                    'Pil optimizasyonunu kapat'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+
                 if (_busy)
                   const Padding(
                     padding: EdgeInsets.all(16),
                     child: Center(child: LinearProgressIndicator()),
                   ),
 
-                const SizedBox(height: 24),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: Text(
-                    'Test Araçları',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                  ),
-                ),
+                // ── Test Araçları ──────────────────────────────────────
+                const _SectionHeader('Test Araçları'),
                 Card(
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                   color: Colors.red.shade50,
@@ -202,6 +436,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 24),
               ],
             ),
     );
@@ -239,6 +474,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final serverOk = await api.wipeServerData();
 
     // 2) Local wipe (controller state + SharedPreferences)
+    // NOT: SharedPreferences key'ler arasında server_base_url_v1 KORUNMUYOR —
+    // BeaconPrefs.wipeAllData liste sadece DATA anahtarlarını siliyor (server URL
+    // kullanıcı tercihi, test datası değil). Eski davranış korundu.
     await ref.read(beaconControllerProvider.notifier).wipeAndReset();
 
     if (!mounted) return;
@@ -254,3 +492,23 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     );
   }
 }
+
+class _SectionHeader extends StatelessWidget {
+  final String label;
+  const _SectionHeader(this.label);
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+}
+

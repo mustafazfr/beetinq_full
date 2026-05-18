@@ -1,8 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'features/beacon/api_service.dart';
 import 'features/beacon/beacon_page.dart';
 
-void main() {
+Future<void> main() async {
+  // SharedPreferences read için binding init şart.
+  WidgetsFlutterBinding.ensureInitialized();
+  // Runtime server URL: SharedPreferences'tan yükle. Kullanıcı saha günü
+  // Ayarlar'dan değiştirebilir; yoksa ApiService default'a düşer.
+  await ApiService.loadServerUrl();
   runApp(const ProviderScope(child: BeetinqSenseApp()));
 }
 
