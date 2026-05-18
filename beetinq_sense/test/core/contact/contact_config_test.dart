@@ -87,4 +87,71 @@ void main() {
       expect(re.hasMatch(kContactTracingUuid), isTrue);
     });
   });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Task 2.18: cross-platform contact advertisement helpers.
+  // iOS yayını service UUID + local name format'ı kullanır; Android yayını
+  // iBeacon major/minor format'ı kullanır. Encode/decode round-trip her iki
+  // tarafta da aynı anonId'yi üretmeli.
+  // ────────────────────────────────────────────────────────────────────────
+  group('encodeAnonIdToLocalName', () {
+    test('ilk 8 hex char alınır + "BTQ-" prefix eklenir', () {
+      final ln = encodeAnonIdToLocalName(
+        'a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4e5f67890',
+      );
+      expect(ln, 'BTQ-a1b2c3d4');
+    });
+
+    test('uppercase input lowercase\'e normalize edilir', () {
+      final ln = encodeAnonIdToLocalName('DEADBEEF${'0' * 56}');
+      expect(ln, 'BTQ-deadbeef');
+    });
+
+    test('kısa hash FormatException fırlatır', () {
+      expect(() => encodeAnonIdToLocalName('abc'), throwsFormatException);
+    });
+
+    test('hex olmayan hash FormatException fırlatır', () {
+      expect(
+        () => encodeAnonIdToLocalName('zzzzzzzz${'0' * 56}'),
+        throwsFormatException,
+      );
+    });
+  });
+
+  group('decodeLocalNameToAnonId', () {
+    test('"BTQ-a1b2c3d4" → "a1b2:c3d4"', () {
+      expect(decodeLocalNameToAnonId('BTQ-a1b2c3d4'), 'a1b2:c3d4');
+    });
+
+    test('uppercase hex → lowercase çıktı', () {
+      expect(decodeLocalNameToAnonId('BTQ-DEADBEEF'), 'dead:beef');
+    });
+
+    test('null → null', () {
+      expect(decodeLocalNameToAnonId(null), isNull);
+    });
+
+    test('prefix\'siz string → null (Beetinq paketi değil)', () {
+      expect(decodeLocalNameToAnonId('Random Device'), isNull);
+      expect(decodeLocalNameToAnonId('a1b2c3d4'), isNull);
+    });
+
+    test('eksik/geçersiz hex → null', () {
+      expect(decodeLocalNameToAnonId('BTQ-zzzz'), isNull);
+      expect(decodeLocalNameToAnonId('BTQ-a1b2'), isNull);
+      expect(decodeLocalNameToAnonId('BTQ-a1b2c3d4ff'), isNull);
+    });
+  });
+
+  group('Android iBeacon ↔ iOS localName platform tutarlılığı', () {
+    test('aynı deviceIdHash her iki platformda aynı anonId üretir', () {
+      final hash = '11223344${'0' * 56}';
+      final ids = encodeDeviceId(hash);
+      final androidAnonId = decodeAnonId(ids.major, ids.minor);
+      final iosAnonId = decodeLocalNameToAnonId(encodeAnonIdToLocalName(hash));
+      expect(androidAnonId, iosAnonId);
+      expect(androidAnonId, '1122:3344');
+    });
+  });
 }

@@ -57,3 +57,52 @@ String decodeAnonId(int major, int minor) {
   final n = minor.toRadixString(16).padLeft(4, '0');
   return '$m:$n';
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Cross-platform contact advertisement helpers (Task 2.18).
+//
+// iOS `flutter_ble_peripheral` 2.x `manufacturerData` desteklemediği için
+// iBeacon yayını yapamaz. Bunun yerine **service UUID + local name** yayını
+// kullanılır. anonId aynı 32-bit slot'ta tutulur ama major/minor yerine
+// localName alanına ASCII olarak gömülür ("BTQ-a1b2c3d4").
+//
+// Scanner tarafı her iki yolu da yakalar:
+// - iBeacon (Android yayını)   → dchs_flutter_beacon ranging → mevcut akış
+// - service UUID (iOS yayını)  → flutter_blue_plus scanner   → yeni akış
+//
+// `kContactTracingUuid` her iki format'ta da aynı; sadece yayın çerçevesi
+// (frame layout) farklı.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// iOS service-UUID yayınlarında local name prefix'i. Scanner bu prefix ile
+/// Beetinq paketlerini diğer BLE cihazlardan ayırır.
+const String kContactAdvLocalNamePrefix = 'BTQ-';
+
+/// 64 karakter hex deviceId hash → "BTQ-a1b2c3d4" local name.
+/// (İlk 4 byte iBeacon encode'unda da kullanılan slot.)
+String encodeAnonIdToLocalName(String deviceIdHash) {
+  if (deviceIdHash.length < 8) {
+    throw FormatException(
+      'deviceIdHash en az 8 hex karakter olmalı, alınan: ${deviceIdHash.length}',
+    );
+  }
+  final prefix = deviceIdHash.substring(0, 8).toLowerCase();
+  // Validate hex
+  if (!RegExp(r'^[0-9a-f]{8}$').hasMatch(prefix)) {
+    throw FormatException('deviceIdHash hex değil: $prefix');
+  }
+  return '$kContactAdvLocalNamePrefix$prefix';
+}
+
+/// Scanner'da yakalanan local name'i anon ID'ye çevirir.
+/// Geçersiz format → null.
+///
+/// "BTQ-a1b2c3d4" → "a1b2:c3d4" (decodeAnonId(0xA1B2, 0xC3D4) ile eşdeğer).
+String? decodeLocalNameToAnonId(String? localName) {
+  if (localName == null) return null;
+  if (!localName.startsWith(kContactAdvLocalNamePrefix)) return null;
+  final hex = localName.substring(kContactAdvLocalNamePrefix.length);
+  if (!RegExp(r'^[0-9a-f]{8}$', caseSensitive: false).hasMatch(hex)) return null;
+  final lo = hex.toLowerCase();
+  return '${lo.substring(0, 4)}:${lo.substring(4, 8)}';
+}

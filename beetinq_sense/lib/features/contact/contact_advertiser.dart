@@ -6,21 +6,26 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/contact/contact_config.dart';
 
-/// Cihazı iBeacon olarak yayınlayan servis. Contact tracing akışının
-/// "advertiser" tarafı; "scanner" tarafı BeaconService'te (Task 1.5.4).
+/// Cihazı BLE üzerinden yayınlayan servis. Contact tracing akışının
+/// "advertiser" tarafı.
 ///
-/// PAKET KISITI (Task 1.5.3 kararı — A): flutter_ble_peripheral 2.x iOS'ta
-/// manufacturerData alanını desteklemiyor; yalnızca service UUID / localName
-/// yayınlayabilir. iBeacon formatı CLBeaconRegion tarafı için Apple şirket
-/// kimliği (0x004C) + mfg data ile crafted olmalı — bu yüzden iOS'ta
-/// advertiser çalıştırılmıyor. iOS cihazlar sadece scanner rolünde kalır.
-/// Demo senaryosu: iki Android cihaz.
+/// Platform farkı (Task 2.18 — cross-platform contact tracing):
+/// - **Android**: iBeacon format (manufacturerId=0x004C + mfg data). Mevcut
+///   `dchs_flutter_beacon` ranging tarafından yakalanır.
+/// - **iOS**: `flutter_ble_peripheral` 2.x `manufacturerData` alanını
+///   desteklemediği için iBeacon yapılamaz. Bunun yerine **service UUID +
+///   local name** yayını yapılır ("BTQ-<8hex>"). Yeni `ContactBleScanner`
+///   (flutter_blue_plus) tarafından yakalanır.
+///
+/// **Önemli**: iOS yayınında `manufacturerId` set edilmez. iOS'ta paket bunu
+/// reddederse advertise hiç başlamaz; bizim yaptığımız "sadece service UUID
+/// + localName" pattern desteklenen kombinasyon.
 class ContactAdvertiser {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
   bool _isRunning = false;
 
-  /// iBeacon mfg data payload: [0x02, 0x15, uuid(16), major(2), minor(2), txPower(1)]
-  /// Company ID (0x004C) AdvertiseData.manufacturerId alanında ayrı gider.
+  /// iBeacon mfg data payload (Android dalı için):
+  /// [0x02, 0x15, uuid(16), major(2), minor(2), txPower(1)]
   static Uint8List _buildIBeaconPayload({
     required String uuid,
     required int major,
@@ -32,8 +37,8 @@ class ContactAdvertiser {
       throw FormatException('UUID 32 hex char olmalı (dash sonrası): $uuid');
     }
     final bytes = Uint8List(23);
-    bytes[0] = 0x02; // iBeacon sub-type
-    bytes[1] = 0x15; // length
+    bytes[0] = 0x02;
+    bytes[1] = 0x15;
     for (int i = 0; i < 16; i++) {
       bytes[2 + i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
     }
@@ -45,17 +50,11 @@ class ContactAdvertiser {
     return bytes;
   }
 
-  /// Advertise başlatır. deviceIdHash (SHA-256 hex) major/minor'e encode edilir.
+  /// Advertise başlatır. deviceIdHash (SHA-256 hex) Android'de major/minor'e,
+  /// iOS'ta local name'e encode edilir.
+  ///
   /// Dönüş: true = başladı, false = atlandı/başarısız.
   Future<bool> start(String deviceIdHash) async {
-    if (!Platform.isAndroid) {
-      debugPrint(
-        '🔕 [ContactAdvertiser] iOS — advertiser çalıştırılmıyor '
-        '(paket kısıtı, sadece scanner).',
-      );
-      return false;
-    }
-
     if (_isRunning) {
       debugPrint('⏩ [ContactAdvertiser] zaten çalışıyor, atlandı.');
       return true;
@@ -71,27 +70,46 @@ class ContactAdvertiser {
         }
       }
 
-      final ids = encodeDeviceId(deviceIdHash);
-      final payload = _buildIBeaconPayload(
-        uuid: kContactTracingUuid,
-        major: ids.major,
-        minor: ids.minor,
-      );
-
-      // Apple company ID — iBeacon formatı için mandatory.
-      const appleCompanyId = 0x004C;
-
-      final data = AdvertiseData(
-        manufacturerId: appleCompanyId,
-        manufacturerData: payload,
-        includeDeviceName: false,
-      );
+      AdvertiseData data;
+      if (Platform.isAndroid) {
+        // iBeacon yayını (mevcut akış, dokunulmadı).
+        final ids = encodeDeviceId(deviceIdHash);
+        final payload = _buildIBeaconPayload(
+          uuid: kContactTracingUuid,
+          major: ids.major,
+          minor: ids.minor,
+        );
+        const appleCompanyId = 0x004C;
+        data = AdvertiseData(
+          manufacturerId: appleCompanyId,
+          manufacturerData: payload,
+          includeDeviceName: false,
+        );
+        debugPrint(
+          '📡 [ContactAdvertiser] Android iBeacon yayını '
+          '(anonId=${decodeAnonId(ids.major, ids.minor)})',
+        );
+      } else if (Platform.isIOS) {
+        // Service UUID + local name yayını.
+        // localName Apple iBeacon mfg data'sı yerine geçer; Beetinq scanner
+        // (flutter_blue_plus) prefix "BTQ-" ile filtreler.
+        final localName = encodeAnonIdToLocalName(deviceIdHash);
+        data = AdvertiseData(
+          serviceUuid: kContactTracingUuid,
+          localName: localName,
+          includeDeviceName: false,
+        );
+        debugPrint(
+          '📡 [ContactAdvertiser] iOS service UUID yayını '
+          '(localName=$localName)',
+        );
+      } else {
+        debugPrint('🔕 [ContactAdvertiser] desteklenmeyen platform, atlandı.');
+        return false;
+      }
 
       final state = await _peripheral.start(advertiseData: data);
-      debugPrint(
-        '📡 [ContactAdvertiser] start → $state '
-        '(anonId=${decodeAnonId(ids.major, ids.minor)})',
-      );
+      debugPrint('📡 [ContactAdvertiser] start → $state');
       _isRunning = true;
       return true;
     } catch (e, st) {
@@ -112,8 +130,6 @@ class ContactAdvertiser {
     }
   }
 
-  /// Raporlama için sync getter; native durumu da sorgulamak istersen
-  /// [FlutterBlePeripheral.isAdvertising] kullan.
   bool get isAdvertising => _isRunning;
 }
 

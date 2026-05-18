@@ -9,6 +9,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/contact/contact_config.dart';
 import '../../core/filters/rssi_filter.dart';
 import '../contact/contact_advertiser.dart';
+import '../contact/contact_ble_scanner.dart';
 import '../contact/contact_controller.dart';
 import '../settings/settings_prefs.dart';
 import 'api_service.dart';
@@ -279,6 +280,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // stop'u çağırmak her iki platform için güvenli (Android zaten no-op).
       if (Platform.isIOS) {
         ref.read(contactAdvertiserProvider).stop();
+        ref.read(contactBleScannerProvider).stop();
       }
     }
 
@@ -291,15 +293,26 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
   }
 
-  /// iOS resumed → advertiser'ı opt-in durumuna göre yeniden başlat.
+  /// iOS resumed → advertiser ve scanner'ı opt-in durumuna göre yeniden başlat.
   Future<void> _restartContactAdvertiserIfEnabled() async {
     try {
       final enabled = await SettingsPrefs().isContactEnabled();
       if (!enabled) return;
       final reporterDeviceId = await _deviceId.getDeviceId();
       await ref.read(contactAdvertiserProvider).start(reporterDeviceId);
+      // Scanner foreground'a dönünce yeniden başlatılır (paused'da
+      // flutter_blue_plus iOS'ta delayed scan yapıyor olabilir).
+      await ref.read(contactBleScannerProvider).start(
+        selfDeviceIdHash: reporterDeviceId,
+        onEncounter: (anonId, rssi, now) {
+          ref
+              .read(contactControllerProvider.notifier)
+              .onEncounterEvent(anonId, rssi, now);
+          _lastBeaconActivity = now;
+        },
+      );
     } catch (e) {
-      _log('contact advertiser resume hatası: $e');
+      _log('contact advertiser/scanner resume hatası: $e');
     }
   }
 
@@ -309,8 +322,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
   /// Settings page opt-out toggle'ı burayı çağırır; ranging callback
   /// değişikliği anında görür. startScanning tekrar çağrılmasına gerek yok.
+  ///
+  /// Cross-platform scanner (Task 2.18): aynı cache flag'i flutter_blue_plus
+  /// scanner'ına da forward edilir, böylece iOS yayınlarını da event olarak
+  /// düşürür/sayar.
   void setContactEnabledCache(bool enabled) {
     _contactEnabledCache = enabled;
+    ref.read(contactBleScannerProvider).setContactEnabledCache(enabled);
   }
 
   /// "Tüm test verisini sil" butonu çağırır. Mevcut session save EDİLMEZ
@@ -338,6 +356,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _monitoringSub = null;
 
     await ref.read(contactAdvertiserProvider).stop();
+    await ref.read(contactBleScannerProvider).stop();
     ref.read(contactControllerProvider.notifier).reset();
 
     _rows.clear();
@@ -595,10 +614,23 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       );
 
       // Contact tracing (Task 1.5.8): advertiser'ı opt-in durumuna göre başlat.
-      // iOS'ta paket kısıtı nedeniyle start içinde no-op; Android'de çalışır.
+      // Android = iBeacon, iOS = service UUID + local name (Task 2.18).
+      // Paralel olarak flutter_blue_plus scanner başlatılır → iOS cihazların
+      // service UUID yayınlarını yakalar (mevcut ranging zaten iBeacon yakalar).
       final contactEnabled = await SettingsPrefs().isContactEnabled();
       if (contactEnabled) {
         ref.read(contactAdvertiserProvider).start(reporterDeviceId).ignore();
+        ref.read(contactBleScannerProvider).start(
+          selfDeviceIdHash: reporterDeviceId,
+          onEncounter: (anonId, rssi, now) {
+            // Aynı `ContactController.onEncounterEvent` akışı — encounter
+            // map'i tek noktadan beslenir, eşik kontrolü değişmez.
+            ref
+                .read(contactControllerProvider.notifier)
+                .onEncounterEvent(anonId, rssi, now);
+            _lastBeaconActivity = now;
+          },
+        ).ignore();
       }
     } catch (e, st) {
       _log('initSdk ERROR: $e\n$st');
@@ -1162,9 +1194,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   Future<void> stop() async {
     _log('stop() tapped');
 
-    // Contact tracing (Task 1.5.8): advertiser'ı her koşulda kapat;
+    // Contact tracing (Task 1.5.8): advertiser ve scanner'ı her koşulda kapat;
     // opt-out ile tetiklenmeyen stop'larda da BLE pilini boşaltmamak için.
     await ref.read(contactAdvertiserProvider).stop();
+    await ref.read(contactBleScannerProvider).stop();
     ref.read(contactControllerProvider.notifier).reset();
 
     _statusPollTimer?.cancel();

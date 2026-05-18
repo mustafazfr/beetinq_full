@@ -9,6 +9,7 @@ import '../beacon/api_service.dart';
 import '../beacon/beacon_controller.dart';
 import '../beacon/device_id_service.dart';
 import '../contact/contact_advertiser.dart';
+import '../contact/contact_ble_scanner.dart';
 import '../contact/contact_controller.dart';
 import 'settings_prefs.dart';
 
@@ -107,20 +108,30 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     ref.read(beaconControllerProvider.notifier).setContactEnabledCache(value);
 
     final advertiser = ref.read(contactAdvertiserProvider);
+    final scanner = ref.read(contactBleScannerProvider);
     if (value) {
-      // Opt-in: advertise'ı başlat. iOS'ta paket kısıtı nedeniyle no-op.
+      // Opt-in: advertise'ı + flutter_blue_plus scanner'ı başlat.
+      // Android = iBeacon advertise, iOS = service UUID + local name (Task 2.18).
       try {
         final deviceId = await DeviceIdService().getDeviceId();
         await advertiser.start(deviceId);
+        await scanner.start(
+          selfDeviceIdHash: deviceId,
+          onEncounter: (anonId, rssi, now) {
+            ref
+                .read(contactControllerProvider.notifier)
+                .onEncounterEvent(anonId, rssi, now);
+          },
+        );
       } catch (e) {
-        debugPrint('contact advertiser start hatası: $e');
+        debugPrint('contact advertiser/scanner start hatası: $e');
       }
     } else {
-      // Opt-out: advertise'ı durdur + encounter map'ini temizle.
-      // Scanner region'ı sonraki startScanning çağrısında gate ediliyor;
-      // şu an ayrıca söküp takmaya gerek yok (ranging callback
-      // contactEnabled=false ise event'i düşürüyor zaten).
+      // Opt-out: advertise'ı + scanner'ı durdur + encounter map'ini temizle.
+      // Ranging callback'i opt-out flag'ini hem _contactEnabledCache hem
+      // scanner cache üzerinden anında görür → event'ler düşürülür.
       await advertiser.stop();
+      await scanner.stop();
       ref.read(contactControllerProvider.notifier).reset();
     }
 

@@ -276,3 +276,32 @@ Temas takibi + arka plan davranışı kapsamlı incelendi; 5 düzeltme yapıldı
 - Neden: Saha günü hotspot ↔ fakülte WiFi geçişinde LAN IP değişir. Önceden uygulama yeniden derlenmesi gerekiyordu; artık Ayarlar ekranından canlı değişiyor.
 
 Commit: `feat(platform): Android 14 FGS tipi + iOS contact region monitoring + battery opt + server URL runtime`
+
+### 2.18 Cross-platform Contact Tracing (iOS-iOS + iOS↔Android tam çift yönlü)
+- [x] `flutter_blue_plus` paketi eklendi (^2.3.2). Mevcut `dchs_flutter_beacon` ve `flutter_ble_peripheral` paketleri korundu; bağımlılık çakışması yok.
+- [x] `contact_config.dart`: `encodeAnonIdToLocalName` ("BTQ-a1b2c3d4"), `decodeLocalNameToAnonId` ("BTQ-deadbeef" → "dead:beef"), `kContactAdvLocalNamePrefix`.
+- [x] `ContactAdvertiser` iOS dalı:
+  - Önceden no-op'tu (`flutter_ble_peripheral` `manufacturerData` desteklemiyor).
+  - Artık `AdvertiseData(serviceUuid, localName: "BTQ-xxxxxxxx")` yayınlar.
+  - Android dalı = iBeacon (mevcut), dokunulmadı.
+- [x] `ContactBleScanner` (yeni dosya): paralel BLE scanner.
+  - `FlutterBluePlus.startScan(withServices: [Guid(kContactTracingUuid)])` ile filtreli scan.
+  - `onScanResults` listener → `decodeLocalNameToAnonId` → `ContactController.onEncounterEvent`.
+  - Self-skip (kendi yayınımızı atla), RSSI sanity, opt-out cache.
+- [x] BeaconController entegrasyonu:
+  - `initSdk`: contactEnabled ise advertiser + scanner birlikte başlat.
+  - `stop`, `wipeAndReset`: scanner.stop ek.
+  - `setContactEnabledCache`: scanner cache forward.
+  - iOS lifecycle pause/resume: scanner stop/start ek.
+- [x] SettingsPage contact toggle: scanner start/stop ek.
+- [x] Test (10 yeni unit test): `encodeAnonIdToLocalName`, `decodeLocalNameToAnonId`, platform tutarlılığı (Android iBeacon ↔ iOS localName aynı anonId).
+- [x] Toplam 80 test yeşil, analyze temiz (1 pre-existing info).
+
+**Sonuç tablosu (önce vs sonra)**:
+| Cihaz çifti | Önce | Sonra |
+|---|---|---|
+| Android ↔ Android | ✅ iBeacon | ✅ iBeacon (mevcut) |
+| Android ↔ iOS | ⚠️ tek yönlü (iOS, Android'i görür) | ✅ çift yönlü (iBeacon + service UUID) |
+| iOS ↔ iOS | ❌ hiç görmez | ✅ service UUID |
+
+Commit: `feat(contact): cross-platform tracing — iOS service UUID + flutter_blue_plus scanner`

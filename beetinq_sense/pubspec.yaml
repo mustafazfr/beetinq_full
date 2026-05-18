@@ -40,6 +40,12 @@ dependencies:
   permission_handler:
   uuid:
   flutter_ble_peripheral: ^2.1.0
+  # Cross-platform contact scanner (Task 2.18): dchs_flutter_beacon yalnız
+  # iBeacon (manufacturerData) görür; iOS cihazlar mfg data yayını yapamadığı
+  # için service UUID + local name format'ı için ikinci paralel BLE scanner
+  # gerekli. Mevcut beacon ranging akışına dokunulmaz; bu paket sadece contact
+  # tracing tarafı için kullanılır.
+  flutter_blue_plus:
 
 
   # The following adds the Cupertino Icons font to your application.
