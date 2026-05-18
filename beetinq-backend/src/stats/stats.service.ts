@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
+import type { Writable } from 'stream';
+import PDFDocument from 'pdfkit';
 
 import { Visit } from '../visits/visit.entity';
 import { Stand } from '../stands/stand.entity';
@@ -364,6 +366,167 @@ export class StatsService {
       locationName: locationName ?? null,
       buckets: buckets.map((b) => ({ label: b.label, count: b.count })),
     };
+  }
+
+  /**
+   * Etkinlik sonrası analiz raporu (PDF) — Sia özetindeki "PDF/Panel"
+   * çıktısı. Tarih filtreli özet + stand bazlı dwell tablosu + kaynak
+   * dağılımı + temas özeti içerir.
+   *
+   * Türkçe karakter notu: PDFKit'in built-in fontları (Helvetica/Times)
+   * WinAnsi encoding kullanır; ı/ş/ğ gibi karakterleri "?" ile çizer.
+   * Asset font eklemek yerine ASCII downgrade ettik — saha demosu için
+   * yeterli, tezde ek olarak normal Türkçe yazı yazılır.
+   */
+  async generatePdfReport(
+    from: string | undefined,
+    to: string | undefined,
+    out: Writable,
+  ) {
+    const [summary, dwell, sources, contacts] = await Promise.all([
+      this.getSummary(from, to),
+      this.getDwellStats(from, to),
+      this.getSourceDistribution(from, to),
+      this.getContactStats(from, to),
+    ]);
+
+    const tr2ascii = (s: string) =>
+      s.replace(/[İıŞşĞğÜüÖöÇç]/g, (c) =>
+        (({
+          İ: 'I',
+          ı: 'i',
+          Ş: 'S',
+          ş: 's',
+          Ğ: 'G',
+          ğ: 'g',
+          Ü: 'U',
+          ü: 'u',
+          Ö: 'O',
+          ö: 'o',
+          Ç: 'C',
+          ç: 'c',
+        } as Record<string, string>)[c] ?? c),
+      );
+    const t = (s: string) => tr2ascii(s);
+
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    doc.pipe(out);
+
+    // ── Header ────────────────────────────────────────────────────────
+    doc
+      .fontSize(22)
+      .fillColor('#111')
+      .text(t('Beetinq Sense — Etkinlik Analiz Raporu'), { align: 'center' });
+    doc.moveDown(0.2);
+    doc
+      .fontSize(10)
+      .fillColor('#666')
+      .text(
+        t(
+          `Olusturuldu: ${new Date().toLocaleString('tr-TR')}  ·  ` +
+            `Donem: ${from ? new Date(from).toLocaleDateString('tr-TR') : 'baslangic'} → ` +
+            `${to ? new Date(to).toLocaleDateString('tr-TR') : 'su an'}`,
+        ),
+        { align: 'center' },
+      );
+    doc.moveDown();
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).strokeColor('#ddd').stroke();
+    doc.moveDown(0.8);
+
+    // ── Özet ─────────────────────────────────────────────────────────
+    doc.fontSize(14).fillColor('#111').text(t('1. Genel Ozet'));
+    doc.moveDown(0.4);
+    doc.fontSize(11).fillColor('#222');
+    const metrics: Array<[string, string]> = [
+      [t('Toplam Ziyaret'), `${summary.totalVisits}`],
+      [t('Benzersiz Cihaz'), `${summary.uniqueDevices}`],
+      [t('Ortalama Bekleme'), `${summary.avgDuration} sn`],
+      [t('Toplam Bekleme'), `${summary.totalDuration} sn`],
+      [t('Aktif Stand'), `${summary.activeStands}`],
+      [t('Toplam Temas'), `${contacts.totalContacts}`],
+      [t('Temasa Giren Cihaz (~)'), `${contacts.uniqueDevicesInvolved}`],
+      [t('Ortalama Temas Suresi'), `${contacts.avgDuration} sn`],
+    ];
+    for (const [label, value] of metrics) {
+      doc.text(`  ${label}: ${value}`);
+    }
+    doc.moveDown();
+
+    // ── Stand bazlı dwell ────────────────────────────────────────────
+    doc.fontSize(14).fillColor('#111').text(t('2. Stand Bazli Bekleme Sureleri'));
+    doc.moveDown(0.4);
+    doc.fontSize(11).fillColor('#222');
+    if (dwell.length === 0) {
+      doc.text(t('  (Bu donemde stand ziyareti bulunmuyor.)'));
+    } else {
+      // Basit sabit kolonlar — dynamic table kütüphanesi kullanmadan.
+      const col1 = 60;
+      const col2 = 240;
+      const col3 = 340;
+      const col4 = 430;
+      const rowY = doc.y;
+      doc
+        .fillColor('#666')
+        .fontSize(10)
+        .text(t('Stand'), col1, rowY)
+        .text(t('Ort. Sure (sn)'), col2, rowY)
+        .text(t('Ziyaret'), col3, rowY)
+        .text(t('Cihaz'), col4, rowY);
+      doc.moveDown(0.3);
+      doc.fillColor('#222').fontSize(11);
+      for (const d of dwell) {
+        const y = doc.y;
+        doc
+          .text(t(d.locationName), col1, y, { width: 170 })
+          .text(`${d.avgDuration}`, col2, y)
+          .text(`${d.visitCount}`, col3, y)
+          .text(`${d.uniqueVisitors}`, col4, y);
+        doc.moveDown(0.2);
+      }
+    }
+    doc.moveDown();
+
+    // ── Kaynak dağılımı ──────────────────────────────────────────────
+    doc.fontSize(14).fillColor('#111').text(t('3. Konum Kaynagi Dagilimi'));
+    doc.moveDown(0.4);
+    doc.fontSize(11).fillColor('#222');
+    const total = sources.total || 1;
+    const pct = (n: number) => Math.round((n / total) * 100);
+    doc.text(
+      `  ${t('Fingerprint')}: ${sources.fingerprint} (${pct(sources.fingerprint)}%)`,
+    );
+    doc.text(
+      `  ${t('Trilateration')}: ${sources.trilateration} (${pct(sources.trilateration)}%)`,
+    );
+    doc.text(`  ${t('Bilinmeyen')}: ${sources.unknown} (${pct(sources.unknown)}%)`);
+    doc.moveDown();
+
+    // ── Temas top pairs ──────────────────────────────────────────────
+    doc.fontSize(14).fillColor('#111').text(t('4. En Sik Temas Eden Ciftler'));
+    doc.moveDown(0.4);
+    doc.fontSize(11).fillColor('#222');
+    if (contacts.topPairs.length === 0) {
+      doc.text(t('  (Bu donemde temas kaydi yok.)'));
+    } else {
+      for (const p of contacts.topPairs.slice(0, 10)) {
+        doc.text(`  ${t(p.deviceId)} <-> ${p.seenAnonId}    x${p.count}`);
+      }
+    }
+    doc.moveDown();
+
+    // ── KVKK notu ────────────────────────────────────────────────────
+    doc.moveDown(1);
+    doc.fontSize(9).fillColor('#888');
+    doc.text(
+      t(
+        'KVKK/GDPR uyumu: Tum cihaz kimlikleri SHA-256 ile anonim tutulur, ' +
+          'MAC adresi veya kisisel veri kaydedilmez. Veriler 14 gun sonra otomatik silinir. ' +
+          'Kullanici Konum ve Temas Analizi ayarlarini istedigi zaman kapatabilir.',
+      ),
+      { align: 'justify' },
+    );
+
+    doc.end();
   }
 
   /**

@@ -86,6 +86,21 @@ export class StatsController {
   }
 
   /**
+   * Etkinlik sonrası analiz raporu PDF (Sia ozeti "etkinlik sonrasi rapor"
+   * maddesi). pdfkit ile A4 sayfaya özet + dwell tablosu + kaynak dağılımı
+   * + temas top pairs + KVKK notu.
+   */
+  @Get('report.pdf')
+  @Header('Content-Type', 'application/pdf')
+  @Header(
+    'Content-Disposition',
+    'attachment; filename="beetinq-rapor.pdf"',
+  )
+  async getReportPdf(@Query() q: StatsQueryDto, @Res() res: Response) {
+    await this.statsService.generatePdfReport(q.from, q.to, res);
+  }
+
+  /**
    * Tüm ziyaretleri CSV olarak indir. Excel uyumlu (UTF-8 BOM + CRLF).
    * Hassas alan: deviceId açık, hash zaten — kişisel veri yok.
    */

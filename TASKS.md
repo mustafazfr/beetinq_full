@@ -112,12 +112,14 @@ Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her gö
 - [x] `RETENTION_DAYS` env ile override edilebilir.
 - Commit: `feat: 14 günlük retention cron job`
 
-### 2.3 PDF Rapor Export — ASKIYA ALINDI
-- [~] `pdfkit ^0.18.0` kuruldu (paket hâlâ package.json'da, kullanım kaldırıldı).
-- [~] `GET /api/stats/report.pdf?from=&to=` — endpoint kaldırıldı.
-- [~] Admin panel "Rapor İndir (PDF)" butonu — kaldırıldı.
-- Not: Trilaterasyon iyileştirmesi tamamlanınca tekrar ele alınacak.
-- Commit (kaldırma): `chore: PDF rapor özelliği askıya alındı`
+### 2.3 PDF Rapor Export — TEKRAR AÇILDI (2026-05-19)
+- [x] `pdfkit ^0.18.0` aktif kullanımda.
+- [x] `GET /api/stats/report.pdf?from=&to=` — A4, 1 sayfa, 4 bölüm: özet, stand dwell tablosu, kaynak dağılımı, top temas çiftleri + KVKK notu.
+- [x] Türkçe karakter ASCII downgrade (PDFKit Helvetica/Times WinAnsi encoding kısıtı; asset font yerine pratik çözüm).
+- [x] Admin panel `📄 PDF Rapor` butonu (CSV İndir yanına).
+- [x] Smoke test: status 200, 2.5KB valid PDF (PDF 1.3, 1 sayfa), date filter çalışıyor.
+- Sia özetindeki "etkinlik sonrası analiz raporu (PDF/Panel)" maddesini kapatır.
+- Commit: `feat(report): PDF rapor endpoint + dashboard butonu`
 
 ### 2.4 Tarih Aralığı Filtresi (Admin Panel)
 - [x] Panel üstü date range input + Uygula/Temizle butonları.

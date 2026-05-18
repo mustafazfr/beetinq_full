@@ -129,7 +129,8 @@
       </label>
       <button class="btn" onclick="applyDateFilter()">Uygula</button>
       <button class="btn btn-ghost" onclick="clearDateFilter()">Temizle</button>
-      <button class="btn btn-green" onclick="downloadCsv()" style="margin-left:8px">📥 CSV İndir</button>
+      <button class="btn btn-green" onclick="downloadCsv()" style="margin-left:8px">📥 CSV</button>
+      <button class="btn btn-green" onclick="downloadPdf()" style="margin-left:4px;background:#dc2626">📄 PDF Rapor</button>
       <button class="btn btn-red" style="margin-left:auto" onclick="wipeAll()" title="Visit + Contact + Stand + Beacon hepsi silinir">🗑️ Tüm Veriyi Sil</button>
     </div>
 
@@ -359,6 +360,11 @@
       const q = dateQuery();
       // Yeni sekme yerine direkt download tetikle.
       window.location.href = `/api/stats/visits.csv${q}`;
+    }
+
+    function downloadPdf() {
+      const q = dateQuery();
+      window.location.href = `/api/stats/report.pdf${q}`;
     }
 
     async function wipeAll() {
