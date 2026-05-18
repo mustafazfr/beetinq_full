@@ -240,3 +240,39 @@ Tek seans kapsamlı incelemenin çıktıları. Bug yok; algoritma + dashboard ze
   - Summary endpoint single-source-of-truth (önceden dwellData reduce'tan hesaplanıyordu)
 - [x] Smoke test: tüm endpoint'ler 200, aggregate doğru (3 visit → 2 trilat aynı x,y → count=2).
 - Commit: `feat(dashboard): saatlik trafik, aktif kullanıcı, kaynak dağılımı, contact graph, CSV export`
+
+---
+
+## 🚀 2026-05-19 Platform & Arka Plan Düzeltmeleri (Saha Testi Öncesi)
+
+Temas takibi + arka plan davranışı kapsamlı incelendi; 5 düzeltme yapıldı.
+
+### 2.13 Android FGS Tipi — `location|connectedDevice`
+- [x] AndroidManifest `foregroundServiceType="location|connectedDevice"`.
+- [x] `FOREGROUND_SERVICE_CONNECTED_DEVICE` izni eklendi.
+- [x] `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` izni eklendi.
+- Neden: Android 14+ FGS tipi yapılan işle eşleşmek zorunda. Contact tracing (BLUETOOTH_SCAN+ADVERTISE) sadece `location` ile başlatılırsa runtime exception fırlatır.
+
+### 2.14 iOS Contact UUID Region Monitoring
+- [x] `startIosMonitoring` artık contact UUID için de region monitoring kuruyor.
+- Neden: iOS'ta ranging arka planda doğrudan çalışmaz; region entry/exit OS-level uyandırma ile penceresi açılır. Önceden sadece target UUID region monitoring vardı, contact background scan yapmıyordu.
+
+### 2.15 ContactEncounter Timestamp-Aware
+- [x] `RssiSample` model (rssi + ts).
+- [x] `ContactEncounter.samples` (List<RssiSample>).
+- [x] `recentWindow(Duration)` gerçek zaman penceresinden cut yapar — sample yoğunluğundan (scan period değişiminden) bağımsız.
+- Neden: Önceki `sublist(n - window.inSeconds)` "1 sample/sn" kabulüne dayanıyordu; low-power scan modunda 5sn/sample, normal modda 300ms/sample → pencere yanlış kesiyordu.
+
+### 2.16 Battery Optimization Muafiyeti Dialog (Android)
+- [x] SettingsPage'e "Pil Optimizasyonu" kartı (Android-only). Yeşil/turuncu durum gösterimi + "Kapat" butonu.
+- [x] `permission_handler` `Permission.ignoreBatteryOptimizations` ile request.
+- Neden: Xiaomi/Huawei/Samsung agresif batarya optimizasyonu FGS'i sessizce öldürür. Saha günü kesintisiz tarama için kullanıcı muafiyet vermeli.
+
+### 2.17 Server URL Runtime Ayarı
+- [x] `SettingsPrefs.getServerBaseUrl/setServerBaseUrl` (anahtar `server_base_url_v1`).
+- [x] `ApiService.loadServerUrl/setServerUrl` static cache + normalize ("192.168.1.42" → `http://192.168.1.42:3000/api`).
+- [x] `main.dart` açılışta `WidgetsFlutterBinding.ensureInitialized()` + `ApiService.loadServerUrl()`.
+- [x] SettingsPage "Sunucu Adresi" kartı: IP/URL input + Kaydet/Temizle butonları.
+- Neden: Saha günü hotspot ↔ fakülte WiFi geçişinde LAN IP değişir. Önceden uygulama yeniden derlenmesi gerekiyordu; artık Ayarlar ekranından canlı değişiyor.
+
+Commit: `feat(platform): Android 14 FGS tipi + iOS contact region monitoring + battery opt + server URL runtime`
