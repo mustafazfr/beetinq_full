@@ -205,6 +205,15 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                             // gerçekten çalışıyor mu?" net görünsün. Temas
                             // analizi opt-out kapalıyken ikisi de kırmızı (normal).
                             _StatusRow(label: 'Temas Yayını', ok: state.contactAdvertising),
+                            // Yayın başarısızsa sebebini göster (donanım/izin).
+                            if (!state.contactAdvertising && state.contactError != null)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 20, top: 2, bottom: 2),
+                                child: Text(
+                                  '⚠️ ${state.contactError}',
+                                  style: const TextStyle(fontSize: 11, color: Colors.orange),
+                                ),
+                              ),
                             _StatusRow(label: 'Temas Taraması', ok: state.contactScanning),
                           ],
                         ),

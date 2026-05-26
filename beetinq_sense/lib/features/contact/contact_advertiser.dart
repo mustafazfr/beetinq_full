@@ -23,6 +23,32 @@ import '../../core/contact/contact_config.dart';
 class ContactAdvertiser {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
   bool _isRunning = false;
+  /// Son start denemesinin sonuç state'i — UI'da hata sebebini göstermek için.
+  /// null = henüz denenmedi; granted/ready = başarılı; denied/unsupported/
+  /// turnedOff vs. = hata sebebi.
+  BluetoothPeripheralState? _lastStartState;
+  String? _lastErrorMessage;
+
+  /// UI hata mesajı için: state'ten okunabilir Türkçe açıklama üretir.
+  String? get lastError {
+    if (_lastErrorMessage != null) return _lastErrorMessage;
+    final s = _lastStartState;
+    if (s == null) return null;
+    switch (s) {
+      case BluetoothPeripheralState.denied:
+        return 'Bluetooth yayın izni reddedildi';
+      case BluetoothPeripheralState.permanentlyDenied:
+        return 'Yayın izni kalıcı reddedildi — Ayarlardan elle ver';
+      case BluetoothPeripheralState.restricted:
+        return 'OS yayını kısıtladı (ebeveyn kontrolü vb.)';
+      case BluetoothPeripheralState.unsupported:
+        return 'Bu cihaz BLE yayın (peripheral) DESTEKLEMİYOR';
+      case BluetoothPeripheralState.turnedOff:
+        return 'Bluetooth kapalı';
+      default:
+        return null; // granted/ready/unknown/limited → hata değil
+    }
+  }
 
   /// iBeacon mfg data payload (Android dalı için):
   /// [0x02, 0x15, uuid(16), major(2), minor(2), txPower(1)]
@@ -60,11 +86,23 @@ class ContactAdvertiser {
       return true;
     }
 
+    _lastErrorMessage = null;
     try {
+      // Donanım desteği kontrolü (Samsung A serisi gibi bazı cihazlar BLE
+      // peripheral/advertising DESTEKLEMEZ → start hep başarısız olur, kod
+      // fix'i yok). Bunu net mesajla raporla.
+      final supported = await _peripheral.isSupported;
+      if (!supported) {
+        _lastErrorMessage = 'Bu cihaz BLE yayın (peripheral) DESTEKLEMİYOR';
+        debugPrint('❌ [ContactAdvertiser] $_lastErrorMessage');
+        return false;
+      }
+
       final perm = await _peripheral.hasPermission();
       if (perm != BluetoothPeripheralState.granted) {
         final req = await _peripheral.requestPermission();
         if (req != BluetoothPeripheralState.granted) {
+          _lastStartState = req;
           debugPrint('❌ [ContactAdvertiser] advertise izni alınmadı: $req');
           return false;
         }
@@ -109,6 +147,7 @@ class ContactAdvertiser {
       }
 
       final state = await _peripheral.start(advertiseData: data);
+      _lastStartState = state;
       debugPrint('📡 [ContactAdvertiser] start → $state');
       // BUG FIX: Eskiden state ne dönerse dönsün _isRunning=true set
       // ediliyordu → advertise başarısız olsa bile sessizce "çalışıyor" gibi
@@ -132,6 +171,7 @@ class ContactAdvertiser {
       return ok;
     } catch (e, st) {
       debugPrint('❌ [ContactAdvertiser] start hatası: $e\n$st');
+      _lastErrorMessage = 'Yayın başlatılamadı: $e';
       _isRunning = false;
       return false;
     }

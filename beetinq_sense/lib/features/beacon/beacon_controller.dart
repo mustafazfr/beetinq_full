@@ -89,6 +89,9 @@ class BeaconState {
   // scanner başarıyla başlamışsa true.
   final bool contactAdvertising;
   final bool contactScanning;
+  // Temas yayını başarısızsa okunabilir sebep (örn "Bu cihaz BLE yayın
+  // DESTEKLEMİYOR"). UI bunu Temas Yayını satırının altında gösterir.
+  final String? contactError;
 
   final DateTime? currentSessionStart;
 
@@ -124,6 +127,7 @@ class BeaconState {
     required this.top3,
     this.contactAdvertising = false,
     this.contactScanning = false,
+    this.contactError,
     this.authorizationStatus,
     this.bluetoothState,
     this.target,
@@ -163,6 +167,7 @@ class BeaconState {
     bool? ranging,
     bool? contactAdvertising,
     bool? contactScanning,
+    Object? contactError = clearValue,
     AuthorizationStatus? authorizationStatus,
     BluetoothState? bluetoothState,
     List<MonitoringResult>? monitoringResults,
@@ -185,6 +190,7 @@ class BeaconState {
       ranging: ranging ?? this.ranging,
       contactAdvertising: contactAdvertising ?? this.contactAdvertising,
       contactScanning: contactScanning ?? this.contactScanning,
+      contactError: identical(contactError, clearValue) ? this.contactError : contactError as String?,
       authorizationStatus: authorizationStatus ?? this.authorizationStatus,
       bluetoothState: bluetoothState ?? this.bluetoothState,
       monitoringResults: monitoringResults ?? this.monitoringResults,
@@ -829,11 +835,16 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         state = state.copyWith(
           contactAdvertising: advOk,
           contactScanning: scanOk,
+          // Yayın başarısızsa sebebini UI'ya taşı (advertiser'dan oku).
+          contactError: advOk
+              ? null
+              : ref.read(contactAdvertiserProvider).lastError,
         );
       } else {
         state = state.copyWith(
           contactAdvertising: false,
           contactScanning: false,
+          contactError: null,
         );
       }
     } catch (e, st) {
