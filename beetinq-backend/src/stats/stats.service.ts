@@ -589,8 +589,8 @@ export class StatsService {
       .fillColor('#666')
       .text(
         t(
-          `Olusturuldu: ${new Date().toLocaleString('tr-TR')}  ·  ` +
-            `Donem: ${from ? new Date(from).toLocaleDateString('tr-TR') : 'baslangic'} → ` +
+          `Olusturuldu: ${new Date().toLocaleString('tr-TR')}  -  ` +
+            `Donem: ${from ? new Date(from).toLocaleDateString('tr-TR') : 'baslangic'} - ` +
             `${to ? new Date(to).toLocaleDateString('tr-TR') : 'su an'}`,
         ),
         { align: 'center' },
@@ -603,15 +603,21 @@ export class StatsService {
     doc.fontSize(14).fillColor('#111').text(t('1. Genel Ozet'));
     doc.moveDown(0.4);
     doc.fontSize(11).fillColor('#222');
+    // Sadeleştirildi: "Toplam Bekleme (sn)" ve "Temasa Giren Cihaz (~)"
+    // çıkarıldı — anlamsız büyük sayı / kafa karıştıran tilde. Süreler
+    // dakika:saniye olarak okunur biçimde.
+    const fmtDur = (sec: number) => {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return m > 0 ? `${m} dk ${s} sn` : `${s} sn`;
+    };
     const metrics: Array<[string, string]> = [
       [t('Toplam Ziyaret'), `${summary.totalVisits}`],
       [t('Benzersiz Cihaz'), `${summary.uniqueDevices}`],
-      [t('Ortalama Bekleme'), `${summary.avgDuration} sn`],
-      [t('Toplam Bekleme'), `${summary.totalDuration} sn`],
+      [t('Ortalama Bekleme'), fmtDur(summary.avgDuration)],
       [t('Aktif Stand'), `${summary.activeStands}`],
       [t('Toplam Temas'), `${contacts.totalContacts}`],
-      [t('Temasa Giren Cihaz (~)'), `${contacts.uniqueDevicesInvolved}`],
-      [t('Ortalama Temas Suresi'), `${contacts.avgDuration} sn`],
+      [t('Ortalama Temas Suresi'), fmtDur(contacts.avgDuration)],
     ];
     for (const [label, value] of metrics) {
       doc.text(`  ${label}: ${value}`);
@@ -622,66 +628,56 @@ export class StatsService {
     doc.fontSize(14).fillColor('#111').text(t('2. Stand Bazli Bekleme Sureleri'));
     doc.moveDown(0.4);
     doc.fontSize(11).fillColor('#222');
-    if (dwell.length === 0) {
+    // Sahte "stand"ları ele: trilaterasyon bazen beacon etiketini ("1-2",
+    // "1-3" gibi major-minor) locationName olarak yazıyor; bunlar gerçek stand
+    // değil, rapora kirlilik katıyor. major-minor desenini filtrele.
+    const realDwell = dwell.filter((d) => !/^\d+-\d+$/.test(d.locationName));
+    const left = doc.page.margins.left; // 50
+    if (realDwell.length === 0) {
       doc.text(t('  (Bu donemde stand ziyareti bulunmuyor.)'));
     } else {
-      // Basit sabit kolonlar — dynamic table kütüphanesi kullanmadan.
+      // Sabit kolonlar (mutlak X). Tablo bittikten sonra akış metni için x
+      // sol marja resetlenir (yoksa sonraki metin dar sağ kolona sıkışıyordu).
       const col1 = 60;
-      const col2 = 240;
-      const col3 = 340;
-      const col4 = 430;
-      const rowY = doc.y;
-      doc
-        .fillColor('#666')
-        .fontSize(10)
-        .text(t('Stand'), col1, rowY)
-        .text(t('Ort. Sure (sn)'), col2, rowY)
-        .text(t('Ziyaret'), col3, rowY)
-        .text(t('Cihaz'), col4, rowY);
-      doc.moveDown(0.3);
-      doc.fillColor('#222').fontSize(11);
-      for (const d of dwell) {
+      const col2 = 300;
+      const col3 = 390;
+      const col4 = 470;
+      const header = () => {
+        const rowY = doc.y;
+        doc
+          .fillColor('#666')
+          .fontSize(10)
+          .text(t('Stand'), col1, rowY, { width: 230 })
+          .text(t('Ort. Sure'), col2, rowY, { width: 80 })
+          .text(t('Ziyaret'), col3, rowY, { width: 70 })
+          .text(t('Cihaz'), col4, rowY, { width: 70 });
+        doc.moveDown(0.3);
+        doc.fillColor('#222').fontSize(11);
+      };
+      header();
+      for (const d of realDwell) {
+        // Sayfa-bölme: satır sayfa sonuna yaklaşırsa yeni sayfa + başlık.
+        if (doc.y > doc.page.height - doc.page.margins.bottom - 24) {
+          doc.addPage();
+          doc.fontSize(11).fillColor('#222');
+          header();
+        }
         const y = doc.y;
         doc
-          .text(t(d.locationName), col1, y, { width: 170 })
-          .text(`${d.avgDuration}`, col2, y)
-          .text(`${d.visitCount}`, col3, y)
-          .text(`${d.uniqueVisitors}`, col4, y);
+          .text(t(d.locationName), col1, y, { width: 230 })
+          .text(fmtDur(d.avgDuration), col2, y, { width: 80 })
+          .text(`${d.visitCount}`, col3, y, { width: 70 })
+          .text(`${d.uniqueVisitors}`, col4, y, { width: 70 });
         doc.moveDown(0.2);
       }
     }
-    doc.moveDown();
-
-    // ── Kaynak dağılımı ──────────────────────────────────────────────
-    doc.fontSize(14).fillColor('#111').text(t('3. Konum Kaynagi Dagilimi'));
-    doc.moveDown(0.4);
-    doc.fontSize(11).fillColor('#222');
-    const total = sources.total || 1;
-    const pct = (n: number) => Math.round((n / total) * 100);
-    doc.text(
-      `  ${t('Fingerprint')}: ${sources.fingerprint} (${pct(sources.fingerprint)}%)`,
-    );
-    doc.text(
-      `  ${t('Trilateration')}: ${sources.trilateration} (${pct(sources.trilateration)}%)`,
-    );
-    doc.text(`  ${t('Bilinmeyen')}: ${sources.unknown} (${pct(sources.unknown)}%)`);
-    doc.moveDown();
-
-    // ── Temas top pairs ──────────────────────────────────────────────
-    doc.fontSize(14).fillColor('#111').text(t('4. En Sik Temas Eden Ciftler'));
-    doc.moveDown(0.4);
-    doc.fontSize(11).fillColor('#222');
-    if (contacts.topPairs.length === 0) {
-      doc.text(t('  (Bu donemde temas kaydi yok.)'));
-    } else {
-      for (const p of contacts.topPairs.slice(0, 10)) {
-        doc.text(`  ${t(p.deviceId)} <-> ${p.seenAnonId}    x${p.count}`);
-      }
-    }
-    doc.moveDown();
+    // Mutlak-X tablodan sonra akış metnini sol marja + tam genişliğe döndür.
+    doc.text('', left, doc.y);
+    doc.moveDown(1.2);
 
     // ── KVKK notu ────────────────────────────────────────────────────
-    doc.moveDown(1);
+    // Bölüm 3 (kaynak dağılımı %) ve 4 (ham anonId çiftleri) kaldırıldı:
+    // teknik/anlamsız bilgiydi, rapora değer katmıyordu.
     doc.fontSize(9).fillColor('#888');
     doc.text(
       t(
@@ -689,7 +685,9 @@ export class StatsService {
           'MAC adresi veya kisisel veri kaydedilmez. Veriler 14 gun sonra otomatik silinir. ' +
           'Kullanici Konum ve Temas Analizi ayarlarini istedigi zaman kapatabilir.',
       ),
-      { align: 'justify' },
+      left,
+      doc.y,
+      { align: 'justify', width: doc.page.width - left - doc.page.margins.right },
     );
 
     doc.end();
