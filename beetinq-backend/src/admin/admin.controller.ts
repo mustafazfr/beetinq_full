@@ -12,10 +12,11 @@ export class AdminController {
    * Body { resetDevices: true } ise bağlı telefonlar da bir sonraki sync'te
    * kendini sıfırlar (uzaktan reset epoch'u ilerletilir).
    *
-   * BUG FIX (Backend R12): destructive endpoint — 1 dakikada en fazla 3 çağrı.
-   * Yanlışlıkla/scripted ardışık wipe'ları (ve çift tıklamayı) sınırlar.
+   * BUG FIX (Backend R12): destructive endpoint — 1 dakikada en fazla 10 çağrı.
+   * Runaway script/sabotaj ve çift tıklamayı sınırlar ama normal test akışını
+   * (seed/sandbox-test birkaç wipe yapar) engellemez.
    */
-  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Post('wipe')
   wipe(@Body() dto: WipeDto) {
     return this.adminService.wipeAll(dto.resetDevices ?? false);

@@ -15,15 +15,21 @@ import { Injectable } from '@nestjs/common';
  */
 @Injectable()
 export class WipeStateService {
-  private wipingUntilMs = 0;
+  // Boolean begin/end: pencere TAM olarak clear() kritik bölümünü kapsar
+  // (zaman bazlı değil). Böylece wipe response döndükten SONRA gelen POST'lar
+  // (örn. seed/test) reddedilmez; yalnızca clear() süren birkaç ms içinde
+  // gelen eşzamanlı POST'lar 503 alır.
+  private wiping = false;
 
-  /** Wipe başladı — kısa bir koruma penceresi aç (varsayılan 3 sn). */
-  beginWipe(windowMs = 3000): void {
-    this.wipingUntilMs = Date.now() + windowMs;
+  beginWipe(): void {
+    this.wiping = true;
   }
 
-  /** Pencere hâlâ açık mı? create() guard'ları bunu kontrol eder. */
+  endWipe(): void {
+    this.wiping = false;
+  }
+
   get isWiping(): boolean {
-    return Date.now() < this.wipingUntilMs;
+    return this.wiping;
   }
 }

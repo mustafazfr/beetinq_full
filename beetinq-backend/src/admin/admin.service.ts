@@ -77,48 +77,54 @@ export class AdminService {
 
   async wipeAll(resetDevices = false) {
     // Wipe yarış koruması (R4): clear'lar sürerken gelen POST'ları guard'lar
-    // 503 ile reddetsin → wipe sonrası orphan kayıt kalmasın.
+    // 503 ile reddetsin → wipe sonrası orphan kayıt kalmasın. Pencere TAM
+    // olarak clear() kritik bölümünü kapsar (finally'de kapanır); response
+    // döndükten sonra gelen POST'lar (seed/test) reddedilmez.
     this.wipeState.beginWipe();
 
-    // clear() TRUNCATE benzeri — tüm satırları siler.
-    // Sırada önemli: foreign key olan tablo önce (Beacon → Stand'a bağlı).
-    const visitCount = await this.visits.count();
-    const contactCount = await this.contacts.count();
-    const beaconCount = await this.beacons.count();
-    const standCount = await this.stands.count();
-    const fingerprintCount = await this.fingerprints.count();
+    try {
+      // clear() TRUNCATE benzeri — tüm satırları siler.
+      // Sırada önemli: foreign key olan tablo önce (Beacon → Stand'a bağlı).
+      const visitCount = await this.visits.count();
+      const contactCount = await this.contacts.count();
+      const beaconCount = await this.beacons.count();
+      const standCount = await this.stands.count();
+      const fingerprintCount = await this.fingerprints.count();
 
-    await this.visits.clear();
-    await this.contacts.clear();
-    await this.beacons.clear();
-    await this.stands.clear();
-    await this.fingerprints.clear();
+      await this.visits.clear();
+      await this.contacts.clear();
+      await this.beacons.clear();
+      await this.stands.clear();
+      await this.fingerprints.clear();
 
-    // Telefonlar da sıfırlanacaksa epoch'u ilerlet → bağlı cihazlar bir
-    // sonraki sync'te bunu görüp kendi yerel verilerini silecek. Kalıcı yaz
-    // (restart sonrası korunsun).
-    if (resetDevices) {
-      this.deviceResetEpoch = Date.now();
-      this.saveEpoch(this.deviceResetEpoch);
+      // Telefonlar da sıfırlanacaksa epoch'u ilerlet → bağlı cihazlar bir
+      // sonraki sync'te bunu görüp kendi yerel verilerini silecek. Kalıcı yaz
+      // (restart sonrası korunsun).
+      if (resetDevices) {
+        this.deviceResetEpoch = Date.now();
+        this.saveEpoch(this.deviceResetEpoch);
+      }
+
+      this.logger.warn(
+        `WIPE: visit=${visitCount}, contact=${contactCount}, ` +
+          `beacon=${beaconCount}, stand=${standCount}, fingerprint=${fingerprintCount} kayıt silindi.` +
+          (resetDevices ? ` Cihaz sıfırlama epoch=${this.deviceResetEpoch}.` : ''),
+      );
+
+      return {
+        success: true,
+        resetDevices,
+        deviceResetEpoch: this.deviceResetEpoch,
+        deleted: {
+          visits: visitCount,
+          contacts: contactCount,
+          beacons: beaconCount,
+          stands: standCount,
+          fingerprints: fingerprintCount,
+        },
+      };
+    } finally {
+      this.wipeState.endWipe();
     }
-
-    this.logger.warn(
-      `WIPE: visit=${visitCount}, contact=${contactCount}, ` +
-        `beacon=${beaconCount}, stand=${standCount}, fingerprint=${fingerprintCount} kayıt silindi.` +
-        (resetDevices ? ` Cihaz sıfırlama epoch=${this.deviceResetEpoch}.` : ''),
-    );
-
-    return {
-      success: true,
-      resetDevices,
-      deviceResetEpoch: this.deviceResetEpoch,
-      deleted: {
-        visits: visitCount,
-        contacts: contactCount,
-        beacons: beaconCount,
-        stands: standCount,
-        fingerprints: fingerprintCount,
-      },
-    };
   }
 }
