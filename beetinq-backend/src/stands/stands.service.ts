@@ -6,6 +6,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Stand } from './stand.entity';
+import { Visit } from '../visits/visit.entity';
+import { ContactEvent } from '../contacts/contact-event.entity';
 import { CreateStandDto } from './dto/create-stand.dto';
 import { UpdateStandDto } from './dto/update-stand.dto';
 
@@ -14,6 +16,10 @@ export class StandsService {
   constructor(
     @InjectRepository(Stand)
     private standsRepository: Repository<Stand>,
+    @InjectRepository(Visit)
+    private visitsRepository: Repository<Visit>,
+    @InjectRepository(ContactEvent)
+    private contactsRepository: Repository<ContactEvent>,
   ) {}
 
   /**
@@ -72,12 +78,28 @@ export class StandsService {
     return this.findOne(id);
   }
 
-  async remove(id: number) {
-    // Var mı kontrolü — bulunamazsa 404
-    await this.findOne(id);
+  /**
+   * Stand'ı sil. cascade=true ise bu stand adına ait visit ve contact kayıtları
+   * da temizlenir — admin panelden "ilişkili verilerle birlikte sil" akışı.
+   * cascade=false (default) eski davranış: visit/contact'ın locationName
+   * referansları kalır (geçmiş istatistik için).
+   */
+  async remove(id: number, cascade = false) {
+    const stand = await this.findOne(id);
+
+    let deletedVisits = 0;
+    let deletedContacts = 0;
+    if (cascade) {
+      const v = await this.visitsRepository.delete({ locationName: stand.name });
+      deletedVisits = v.affected ?? 0;
+      const c = await this.contactsRepository.delete({ locationName: stand.name });
+      deletedContacts = c.affected ?? 0;
+    }
+
     await this.standsRepository.delete(id);
-    // NOT: Visit tablosunda FK yok, bu yüzden ziyaret kayıtları silinmez.
-    // Stand silinse bile istatistik için locationName referansları kalır.
-    return { success: true };
+    return {
+      success: true,
+      deleted: { visits: deletedVisits, contacts: deletedContacts },
+    };
   }
 }

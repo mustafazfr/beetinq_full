@@ -16,24 +16,26 @@ const String kContactTracingUuid = 'DBB2D4FF-40B6-4902-8948-8E8A642CDA0C';
 /// kabul edilir. -80 dBm ≈ 2 metre.
 const int kContactRssiThreshold = -80;
 
-/// Contact sayılma süresi (saniye). Bu süre kadar sürekli (veya birbirini
-/// takip eden örneklerle) görülen encounter, contact olarak raporlanır.
-const int kContactDurationSeconds = 60;
+/// Contact sayılma süresi (saniye). İki cihaz birbirini görüp bu süre kadar
+/// yan yana durunca temas başlar. Kullanıcı isteği üzerine 60→10sn'ye çekildi
+/// (demo + sahada hızlı feedback). Dwell time bu temas başlangıcından itibaren
+/// hesaplanır.
+const int kContactDurationSeconds = 10;
 
 /// Eviction eşiği: bu süredir görülmeyen encounter RAM'den silinir.
 /// Bu süre kadar uzak kalınca "temas koptu" sayılır; tekrar yaklaşınca YENİ
-/// temas başlar. Demo/test kolaylığı için 90sn'ye çekildi (eskiden 5 dk idi;
-/// "5 dakika uzak kalmak" test için çok uzundu). Gerçek bir temasın kısa BLE
-/// kesintisinde bölünmemesi için 90sn yeterli pay bırakıyor.
-const int kContactEvictionSeconds = 90;
+/// temas başlar. Kullanıcı isteği üzerine 90→10sn'ye çekildi: "10sn boyunca
+/// birbirini görmezse temas kesilsin". Kısa BLE flicker'larda 10sn yeterli
+/// pay (scan period ~1-2sn).
+const int kContactEvictionSeconds = 10;
 
 /// Contact eşiği aşıldıktan sonra, encounter hâlâ aktifse her bu kadar
 /// saniyede bir güncel (daha uzun) süreyle tekrar raporlanır. Aynı
-/// clientEventId ile gider; backend upsert ile süreyi günceller. Böylece
-/// uzun temasların GERÇEK süresi kaydedilir — yoksa eşik bir kez aşılıp
-/// contact ~60sn olarak donuyordu ve "ortalama temas süresi" çıktısı yanıltıcı
-/// oluyordu.
-const int kContactReReportIntervalSeconds = 60;
+/// clientEventId ile gider; backend upsert ile süreyi günceller — temas
+/// devam ederken dashboard'daki süre canlı güncellenir. 60→15sn (eviction
+/// 10sn olduğu için artık kısa temas senaryoları yaygın; 15sn iyi denge:
+/// API trafiği patlamaz ama dashboard hızlı canlanır).
+const int kContactReReportIntervalSeconds = 15;
 
 /// Device hash'ini (hex string) iBeacon major/minor çiftine çevirir.
 ///
