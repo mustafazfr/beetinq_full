@@ -4,6 +4,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 
 import { CreateContactEventDto } from './dto/create-contact-event.dto';
 import { ContactEvent } from './contact-event.entity';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class ContactsService {
@@ -12,6 +13,7 @@ export class ContactsService {
   constructor(
     @InjectRepository(ContactEvent)
     private contactsRepository: Repository<ContactEvent>,
+    private readonly events: EventsGateway,
   ) {}
 
   async create(dto: CreateContactEventDto) {
@@ -43,10 +45,30 @@ export class ContactsService {
         },
       });
       if (existing) {
+        // Upsert: uzun temaslarda mobil aynı clientEventId ile güncel (daha
+        // uzun) süreyle tekrar gönderir. firstSeenAt sabit kalır; süre/son
+        // görülme/rssi/örnek sayısı güncellenir. Böylece "ortalama temas
+        // süresi" gerçek süreyi yansıtır, eski donmuş ~60sn değil.
+        existing.lastSeenAt = lastSeenAt;
+        existing.durationSeconds = computed;
+        existing.avgRssi = dto.avgRssi;
+        existing.sampleCount = dto.sampleCount;
+        if (dto.locationName !== undefined) {
+          existing.locationName = dto.locationName;
+        }
+        await this.contactsRepository.save(existing);
         this.logger.debug(
-          `Duplicate contact eventId=${dto.clientEventId}, döndürülen id=${existing.id}`,
+          `Contact güncellendi (re-report) eventId=${dto.clientEventId}, ` +
+            `id=${existing.id}, yeni süre=${computed}s`,
         );
-        return { success: true, id: existing.id, duplicate: true };
+        // Süre güncellendi → panel yenilensin.
+        this.events.emitDataChanged('contact');
+        return {
+          success: true,
+          id: existing.id,
+          duplicate: true,
+          updated: true,
+        };
       }
     }
 
@@ -59,6 +81,7 @@ export class ContactsService {
       durationSeconds: computed,
       avgRssi: dto.avgRssi,
       sampleCount: dto.sampleCount,
+      locationName: dto.locationName ?? null,
     });
 
     try {
@@ -88,6 +111,8 @@ export class ContactsService {
       `Contact saved id=${entity.id} device=${dto.deviceId.slice(0, 8)}… ` +
         `peer=${dto.seenAnonId} dur=${computed}s avgRssi=${dto.avgRssi}`,
     );
+    // Gerçek zamanlı panel: yeni temas → "yenile" sinyali yayınla.
+    this.events.emitDataChanged('contact');
     return { success: true, id: entity.id };
   }
 }

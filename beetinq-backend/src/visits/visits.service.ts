@@ -8,6 +8,7 @@ import { QueryFailedError, Repository } from 'typeorm';
 
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { Visit } from './visit.entity';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class VisitsService {
@@ -16,6 +17,7 @@ export class VisitsService {
   constructor(
     @InjectRepository(Visit)
     private visitsRepository: Repository<Visit>,
+    private readonly events: EventsGateway,
   ) {}
 
   async create(dto: CreateVisitDto) {
@@ -99,6 +101,8 @@ export class VisitsService {
       `Visit saved id=${visit.id} device=${dto.deviceId.slice(0, 8)}… ` +
         `loc="${dto.locationName}" dur=${computed}s src=${dto.positionSource ?? '-'}`,
     );
+    // Gerçek zamanlı panel: yeni ziyaret → "yenile" sinyali yayınla.
+    this.events.emitDataChanged('visit');
     return { success: true, id: visit.id };
   }
 }

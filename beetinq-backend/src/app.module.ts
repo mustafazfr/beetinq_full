@@ -11,6 +11,7 @@ import { StatsModule } from './stats/stats.module';
 import { StandsModule } from './stands/stands.module';
 import { BeaconsModule } from './beacons/beacons.module';
 import { ContactsModule } from './contacts/contacts.module';
+import { FingerprintsModule } from './fingerprints/fingerprints.module';
 import { CommonModule } from './common/common.module';
 import { AdminModule } from './admin/admin.module';
 
@@ -18,6 +19,7 @@ import { Visit } from './visits/visit.entity';
 import { Stand } from './stands/stand.entity';
 import { Beacon } from './beacons/beacon.entity';
 import { ContactEvent } from './contacts/contact-event.entity';
+import { Fingerprint } from './fingerprints/fingerprint.entity';
 
 @Module({
   imports: [
@@ -37,7 +39,7 @@ import { ContactEvent } from './contacts/contact-event.entity';
     TypeOrmModule.forRoot({
       type: 'better-sqlite3',
       database: process.env.DB_PATH ?? 'database.sqlite',
-      entities: [Visit, Stand, Beacon, ContactEvent],
+      entities: [Visit, Stand, Beacon, ContactEvent, Fingerprint],
       // ⚠️ PRODUCTION: synchronize false olmalı, migration kullanılmalı.
       // Development'ta true bırakmak sahada hızlı iterasyon için pratik.
       synchronize: process.env.NODE_ENV !== 'production',
@@ -48,6 +50,7 @@ import { ContactEvent } from './contacts/contact-event.entity';
     StandsModule,
     BeaconsModule,
     ContactsModule,
+    FingerprintsModule,
     CommonModule,
     AdminModule,
   ],
