@@ -827,17 +827,34 @@
       const wrap = document.getElementById('contactLogWrap');
       const events = contactEvents || [];
       if (!events.length) { wrap.innerHTML = ''; return; }
-      const rows = events.map(e => `
-        <tr>
+      // Aktif/devam eden temas tespiti: lastSeenAt son 30sn içindeyse temas
+      // hâlâ canlı. Backend "kapandı" sinyali atmıyor; mobilin re-report
+      // mantığı 15sn'de bir lastSeenAt günceller → 30sn pay temas-bittiyse
+      // güvenle "Bitti" der, devam ediyorsa "🟢 Devam ediyor" gösterir.
+      const now = Date.now();
+      const activeWindowMs = 30000;
+      const rows = events.map(e => {
+        const lastMs = new Date(e.lastSeenAt).getTime();
+        const isActive = (now - lastMs) < activeWindowMs;
+        const endCell = isActive
+          ? '<span style="color:#22c55e">🟢 Devam ediyor</span>'
+          : fmtTime(e.lastSeenAt);
+        return `
+        <tr${isActive ? ' style="background:#0d2818"' : ''}>
           <td><span class="anon">${e.reporterAnonId}</span><span class="arrow"> → </span><span class="anon">${e.seenAnonId}</span></td>
           <td>${fmtTime(e.firstSeenAt)}</td>
-          <td>${fmtTime(e.lastSeenAt)}</td>
+          <td>${endCell}</td>
           <td class="num">${fmtDur(e.durationSeconds)}</td>
           <td class="num">${e.avgRssi} dBm<br><span class="muted">~${rssiToMeters(e.avgRssi).toFixed(1)}m</span></td>
           <td>${e.locationName ? `<span class="stand-tag">${e.locationName}</span>` : '<span class="muted">—</span>'}</td>
-        </tr>`).join('');
+        </tr>`;
+      }).join('');
+      const activeCount = events.filter(e => (now - new Date(e.lastSeenAt).getTime()) < activeWindowMs).length;
+      const activeNote = activeCount > 0
+        ? ` <span style="color:#22c55e">· ${activeCount} aktif</span>`
+        : '';
       wrap.innerHTML =
-        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kimi ne zaman gördü (${events.length} kayıt, en yeni üstte). ` +
+        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kimi ne zaman gördü (${events.length} kayıt${activeNote}, en yeni üstte). ` +
         `Yön: <b style="color:#888">Raporlayan</b> cihazı, <b style="color:#888">Görülen</b> cihazı gördü.</div>` +
         '<div class="clog-scroll"><table class="clog"><thead><tr>' +
         '<th>Raporlayan → Görülen</th><th>Başlangıç</th><th>Bitiş</th>' +

@@ -24,10 +24,14 @@ const int kContactDurationSeconds = 10;
 
 /// Eviction eşiği: bu süredir görülmeyen encounter RAM'den silinir.
 /// Bu süre kadar uzak kalınca "temas koptu" sayılır; tekrar yaklaşınca YENİ
-/// temas başlar. Kullanıcı isteği üzerine 90→10sn'ye çekildi: "10sn boyunca
-/// birbirini görmezse temas kesilsin". Kısa BLE flicker'larda 10sn yeterli
-/// pay (scan period ~1-2sn).
-const int kContactEvictionSeconds = 10;
+/// temas başlar.
+///
+/// Tasarım notu: Kullanıcı önce 10sn istedi ama sahada gözlemlendi ki
+/// iki cihaz KIPIRDAMASA BİLE BLE doğası gereği 8-12sn'lik paket kayıpları
+/// oluyor → 10sn eviction temas BÖLÜYORDU (her 10-30sn'de bir yeni kayıt).
+/// 20sn dengeli: kısa flicker temas bölmüyor, gerçek ayrılış (20sn yokluk)
+/// hâlâ algılanıyor. Başlama eşiği (kContactDurationSeconds=10sn) korundu.
+const int kContactEvictionSeconds = 20;
 
 /// Contact eşiği aşıldıktan sonra, encounter hâlâ aktifse her bu kadar
 /// saniyede bir güncel (daha uzun) süreyle tekrar raporlanır. Aynı
