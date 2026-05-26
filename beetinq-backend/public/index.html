@@ -106,9 +106,46 @@
     .pill-fp { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
     .pill-tl { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
     .pill-un { background: rgba(156, 163, 175, 0.2); color: #d1d5db; }
+
+    /* Temas matrisi: kim kiminle ne kadar temas etti (renk = toplam süre) */
+    .cmatrix { border-collapse: collapse; font-size: 10px; font-family: ui-monospace, monospace; margin-top: 6px; }
+    .cmatrix th, .cmatrix td {
+      border: 1px solid #262626; padding: 5px 7px; text-align: center; min-width: 30px;
+    }
+    .cmatrix thead th, .cmatrix tbody th { color: #aaa; font-weight: 600; white-space: nowrap; }
+    .cmatrix tbody th { text-align: right; }
+    .cmatrix td { color: #fff; }
+    .cmatrix td.diag { color: #3a3a3a; background: #141414; }
+    .cmatrix td.empty { color: #2e2e2e; }
+    .matrix-scroll { overflow-x: auto; }
+    .contact-pair {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 7px 0; border-bottom: 1px solid #1f1f1f; font-size: 12px;
+    }
+    .contact-pair:last-child { border-bottom: none; }
+    .contact-pair .names { font-family: ui-monospace, monospace; color: #ddd; }
+    .contact-pair .meta { text-align: right; }
+    .contact-pair .cnt { font-size: 13px; font-weight: 600; color: #a78bfa; }
+    .contact-pair .sub { font-size: 10px; color: #666; margin-top: 1px; }
+    /* Temas günlüğü tablosu — "kim kimi ne zaman gördü" okunur listesi */
+    .clog-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid #222; border-radius: 8px; }
+    .clog { border-collapse: collapse; width: 100%; font-size: 11px; }
+    .clog thead th {
+      position: sticky; top: 0; background: #161616; color: #888; font-weight: 600;
+      text-align: left; padding: 7px 9px; border-bottom: 1px solid #2a2a2a; white-space: nowrap;
+    }
+    .clog tbody td { padding: 6px 9px; border-bottom: 1px solid #1c1c1c; color: #ccc; white-space: nowrap; }
+    .clog tbody tr:last-child td { border-bottom: none; }
+    .clog tbody tr:hover td { background: #181818; }
+    .clog .anon { font-family: ui-monospace, monospace; color: #ddd; }
+    .clog .arrow { color: #a78bfa; padding: 0 2px; }
+    .clog .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .clog .muted { color: #666; }
+    .clog .stand-tag { color: #22c55e; }
   </style>
   <script src="https://unpkg.com/simpleheat@0.4.0/simpleheat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 </head>
 <body>
   <header>
@@ -116,7 +153,10 @@
       <h1>Beetinq Sense</h1>
       <span>Yönetim Paneli</span>
     </div>
-    <span id="lastUpdate" style="font-size:11px;color:#555"></span>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span id="wsStatus" style="font-size:11px;color:#888">○ polling</span>
+      <span id="lastUpdate" style="font-size:11px;color:#555"></span>
+    </div>
   </header>
 
   <div class="container">
@@ -131,7 +171,8 @@
       <button class="btn btn-ghost" onclick="clearDateFilter()">Temizle</button>
       <button class="btn btn-green" onclick="downloadCsv()" style="margin-left:8px">📥 CSV</button>
       <button class="btn btn-green" onclick="downloadPdf()" style="margin-left:4px;background:#dc2626">📄 PDF Rapor</button>
-      <button class="btn btn-red" style="margin-left:auto" onclick="wipeAll()" title="Visit + Contact + Stand + Beacon hepsi silinir">🗑️ Tüm Veriyi Sil</button>
+      <button class="btn btn-red" style="margin-left:auto" onclick="wipeAll(false)" title="Sadece sunucudaki visit + contact + stand + beacon kayıtları silinir. Telefonlar dokunulmaz.">🗑️ Sunucuyu Sıfırla</button>
+      <button class="btn btn-red" style="margin-left:8px;background:#7c2d12" onclick="wipeAll(true)" title="Sunucu + bağlı telefonların yerel verileri (fingerprint, oturum, kuyruk) ~30sn içinde otomatik sıfırlanır">📱 Sunucu + Telefonları Sıfırla</button>
     </div>
 
     <div class="stats-row">
@@ -213,16 +254,38 @@
 
         <div class="panel">
           <h2>Stand'lar</h2>
+          <p class="hint">Elle stand ekle; haritada sürükleyerek yerleştir. (Mobilden fingerprint kaydıyla da otomatik gelir.)</p>
+          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+            <input id="newStandName" placeholder="Stand adı — örn: Sony Standı"
+                   style="flex:1;min-width:160px;background:#111;border:1px solid #333;color:#fff;padding:7px 9px;border-radius:6px;font-size:13px"
+                   onkeydown="if(event.key==='Enter')addStand()">
+            <button class="btn btn-green" onclick="addStand()">+ Stand Ekle</button>
+          </div>
           <div id="standItems"><p style="color:#555;font-size:13px">Henüz stand eklenmedi</p></div>
         </div>
 
         <div class="panel">
           <h2>Temas Raporu</h2>
           <div id="contactStats"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
-          <div id="contactGraphWrap" style="display:none;margin-top:12px">
-            <p class="hint">Cihazlar arası temas ağı (top 10 çift).</p>
-            <canvas id="contactGraph" width="460" height="260" style="background:#0f0f0f;border:1px solid #2a2a2a;border-radius:8px"></canvas>
+          <div id="contactDistWrap" style="display:none;margin-top:14px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div>
+                <div style="font-size:11px;color:#888;margin-bottom:4px">Kişi başı temas sayısı</div>
+                <div class="chart-wrap small"><canvas id="contactDegreeChart"></canvas></div>
+              </div>
+              <div>
+                <div style="font-size:11px;color:#888;margin-bottom:4px">Temas süresi dağılımı</div>
+                <div class="chart-wrap small"><canvas id="contactDurationChart"></canvas></div>
+              </div>
+            </div>
           </div>
+          <div id="contactStandWrap" style="display:none;margin-top:14px">
+            <div style="font-size:11px;color:#888;margin-bottom:4px">Stand bazlı temas — hangi standda ne kadar yakınlaşma (networking hotspot)</div>
+            <div class="chart-wrap small"><canvas id="contactStandChart"></canvas></div>
+          </div>
+          <div id="contactTopPeople" style="margin-top:14px"></div>
+          <div id="contactLogWrap" style="margin-top:16px"></div>
+          <div id="contactMatrixWrap" style="display:none;margin-top:14px"></div>
         </div>
 
         <div class="panel">
@@ -250,6 +313,7 @@
     let dwellData = [];
     let summaryData = null;
     let contactStats = null;
+    let contactEvents = [];
     let heatmapData = { trilateration: [], fingerprint: [] };
     let beacons = [];
     let hourlyData = [];
@@ -262,6 +326,9 @@
     let hourlyChart = null;
     let sourceChart = null;
     let dwellHistChart = null;
+    let contactDegreeChart = null;
+    let contactDurationChart = null;
+    let contactStandChart = null;
 
     localStorage.removeItem('beaconConstraints_v1');
 
@@ -284,7 +351,9 @@
         if (typeof b.x === 'number' && typeof b.y === 'number') points.push([b.x, b.y]);
       }
       for (const s of stands) {
-        if (typeof s.x === 'number' && typeof s.y === 'number') points.push([s.x, s.y]);
+        // Yerleştirilmemiş stand'lar (sentinel -1,-1) bbox'a katılmaz; yoksa
+        // harita ölçeği/merkezi bozulur. Admin haritaya koyunca dahil olurlar.
+        if (typeof s.x === 'number' && typeof s.y === 'number' && s.x >= 0 && s.y >= 0) points.push([s.x, s.y]);
       }
       if (points.length < 2) return { ...DEFAULT_ROOM };
 
@@ -367,12 +436,26 @@
       window.location.href = `/api/stats/report.pdf${q}`;
     }
 
-    async function wipeAll() {
-      if (!confirm('TÜM stand/beacon/visit/contact verisi silinecek. Bu işlem geri alınamaz. Devam?')) return;
-      const res = await fetch('/api/admin/wipe', { method: 'POST' });
+    async function wipeAll(resetDevices = false) {
+      // resetDevices=true → backend "uzaktan sıfırlama epoch'u" ilerletir;
+      // bağlı telefonlar periyodik sync'te (~30sn) bunu görüp kendi yerel
+      // verilerini de (fingerprint, oturum, offline kuyruk) sıfırlar. Aksi
+      // halde sadece sunucu silinir, telefonlar veri tutmaya devam eder.
+      const msg = resetDevices
+        ? 'TÜM sunucu verisi silinecek VE bağlı tüm telefonlar ~30sn içinde otomatik sıfırlanacak (fingerprint, oturum, kuyruk dahil). Geri alınamaz. Devam?'
+        : 'TÜM sunucu verisi (visit/contact/stand/beacon) silinecek. Telefonlar dokunulmaz, eski verileri geri gönderebilir. Geri alınamaz. Devam?';
+      if (!confirm(msg)) return;
+      const res = await fetch('/api/admin/wipe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resetDevices }),
+      });
       if (!res.ok) { alert('Hata: ' + (await res.text())); return; }
       const r = await res.json();
-      alert(`Silindi:\n• ${r.deleted.visits} visit\n• ${r.deleted.contacts} contact\n• ${r.deleted.beacons} beacon\n• ${r.deleted.stands} stand`);
+      const tail = resetDevices
+        ? `\n\n📱 Telefonlar ~30sn içinde kendini sıfırlayacak (epoch=${r.deviceResetEpoch}).`
+        : '';
+      alert(`Silindi:\n• ${r.deleted.visits} visit\n• ${r.deleted.contacts} contact\n• ${r.deleted.beacons} beacon\n• ${r.deleted.stands} stand` + tail);
       await loadAll();
     }
 
@@ -383,12 +466,13 @@
       const q = dateQuery();
       try {
         const [
-          dwellRes, standsRes, contactRes, heatmapRes, beaconsRes,
+          dwellRes, standsRes, contactRes, contactEventsRes, heatmapRes, beaconsRes,
           summaryRes, hourlyRes, sourceRes, dwellHistRes, activeRes
         ] = await Promise.all([
           fetch(`/api/stats/dwell${q}`),
           fetch('/api/stands'),
           fetch(`/api/stats/contacts${q}`),
+          fetch(`/api/stats/contact-events${q}`),
           fetch(`/api/stats/heatmap${q}`),
           fetch('/api/beacons'),
           fetch(`/api/stats/summary${q}`),
@@ -400,6 +484,7 @@
         dwellData = await dwellRes.json();
         stands = await standsRes.json();
         contactStats = await contactRes.json();
+        contactEvents = await contactEventsRes.json();
         heatmapData = await heatmapRes.json();
         beacons = await beaconsRes.json();
         summaryData = await summaryRes.json();
@@ -416,7 +501,6 @@
         renderHourly();
         renderSource();
         renderDwellHist();
-        renderContactGraph();
         draw();
 
         const ts = new Date();
@@ -457,40 +541,254 @@
     }
 
     function renderStandList() {
-      document.getElementById('standItems').innerHTML = stands.length
-        ? stands.map(s => `
+      // Stand = fingerprint ile isimlendirilen bölge. İsmi mobilden gelir,
+      // konumunu admin haritada verir. Konumu olmayan (sentinel -1,-1) stand'lar
+      // "yerleştirilmemiş" bölümünde; "Haritaya koy" → ortaya gelir, sonra
+      // mevcut drag-drop ile gerçek yerine sürüklenir.
+      if (!stands.length) {
+        document.getElementById('standItems').innerHTML =
+          '<p style="color:#555;font-size:13px">Henüz stand eklenmedi</p>';
+        return;
+      }
+      const placed = stands.filter(s => s.x >= 0 && s.y >= 0);
+      const unplaced = stands.filter(s => s.x < 0 || s.y < 0);
+
+      const placedHtml = placed.map(s => `
           <div class="stand-list-item">
             <span><span class="stand-dot"></span>${s.name}</span>
             <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteStand(${s.id})">Sil</button>
-          </div>`).join('')
-        : '<p style="color:#555;font-size:13px">Henüz stand eklenmedi</p>';
+          </div>`).join('');
+
+      const unplacedHtml = unplaced.length ? `
+        <p style="color:#f59e0b;font-size:12px;margin:10px 0 6px">📍 Yerleştirilmemiş (${unplaced.length}) — "Haritaya koy" deyip sürükleyerek yerine taşı:</p>
+        ${unplaced.map(s => `
+          <div class="stand-list-item">
+            <span><span class="stand-dot" style="background:#6b7280"></span>${s.name}</span>
+            <span style="display:flex;gap:6px">
+              <button class="btn" style="padding:4px 10px;font-size:11px" onclick="placeStandOnMap(${s.id})">Haritaya koy</button>
+              <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteStand(${s.id})">Sil</button>
+            </span>
+          </div>`).join('')}` : '';
+
+      document.getElementById('standItems').innerHTML = placedHtml + unplacedHtml;
+    }
+
+    // Yerleştirilmemiş stand'ı haritanın ortasına koyar (PATCH). Admin sonra
+    // sürükleyerek gerçek konuma taşır. Arka arkaya koyunca üst üste binmesin
+    // diye her çağrıda küçük offset eklenir.
+    let _placeOffset = 0;
+    async function placeStandOnMap(id) {
+      const r = currentRoom();
+      const off = (_placeOffset++ % 5) * 0.4;
+      const cx = +(r.ox + r.w / 2 + off).toFixed(2);
+      const cy = +(r.oy + r.h / 2 + off).toFixed(2);
+      await updateStand(id, cx, cy);
+      renderStandList();
+    }
+
+    // RSSI (dBm) → kaba mesafe (m). Log-distance, n=2.5, tx=-59 (mobil ile aynı).
+    function rssiToMeters(rssi) {
+      return Math.pow(10, (-59 - rssi) / 25);
+    }
+    function fmtDur(sec) {
+      if (sec < 60) return sec + 's';
+      const m = Math.floor(sec / 60), s = sec % 60;
+      return s ? `${m}dk ${s}s` : `${m}dk`;
     }
 
     function renderContactStats() {
       const el = document.getElementById('contactStats');
-      const graphWrap = document.getElementById('contactGraphWrap');
+      const matrixWrap = document.getElementById('contactMatrixWrap');
       if (!contactStats || contactStats.totalContacts === 0) {
         el.innerHTML = '<p style="color:#555;font-size:13px">Henüz kayıtlı temas yok</p>';
-        graphWrap.style.display = 'none';
+        matrixWrap.style.display = 'none';
+        document.getElementById('contactLogWrap').innerHTML = '';
         return;
       }
       const s = contactStats;
-      const rows = s.topPairs.slice(0, 8).map(p => `
-        <div class="stand-list-item">
-          <span style="font-family:monospace;font-size:11px">${p.deviceId} ↔ ${p.seenAnonId}</span>
-          <span style="font-size:11px;color:#555">×${p.count}</span>
+      const pairs = s.pairs || [];
+      // En çok temas eden çiftler (yönsüz, kimlik normalize edilmiş).
+      const rows = pairs.slice(0, 8).map(p => `
+        <div class="contact-pair">
+          <span class="names">${p.a} ↔ ${p.b}</span>
+          <span class="meta">
+            <div class="cnt">${p.count} temas</div>
+            <div class="sub">${fmtDur(p.totalDuration)} · ~${rssiToMeters(p.avgRssi).toFixed(1)}m · ${p.avgRssi}dBm</div>
+          </span>
         </div>
       `).join('');
       el.innerHTML = `
-        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px">
+        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;flex-wrap:wrap">
           <div><b style="color:#a78bfa">${s.totalContacts}</b> kayıt</div>
-          <div><b style="color:#a78bfa">~${s.uniqueDevicesInvolved}</b> cihaz</div>
-          <div><b style="color:#a78bfa">${s.avgDuration}s</b> ort. süre</div>
+          <div><b style="color:#a78bfa">${s.uniqueDevicesInvolved}</b> kişi</div>
+          <div><b style="color:#a78bfa">${s.avgContactsPerPerson ?? '—'}</b> kişi başı temas</div>
+          <div><b style="color:#a78bfa">${fmtDur(s.avgDuration)}</b> ort. süre</div>
         </div>
-        <div style="font-size:11px;color:#555;margin-bottom:6px">En sık çiftler:</div>
+        <div style="font-size:11px;color:#555;margin-bottom:2px">En çok temas eden çiftler:</div>
         ${rows}
       `;
-      graphWrap.style.display = s.topPairs.length > 0 ? 'block' : 'none';
+      renderContactDistributions();
+      renderContactStands();
+      renderContactTopPeople();
+      renderContactLog();
+      renderContactMatrix();
+    }
+
+    // Tarih/saat okunur format. Aynı gün ise sadece HH:MM:SS; farklı gün ise
+    // gün-ay da eklenir (örn "24 May 19:01:52"). ISO string parse edilir.
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      const t = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const today = new Date();
+      const sameDay = d.getFullYear() === today.getFullYear()
+        && d.getMonth() === today.getMonth()
+        && d.getDate() === today.getDate();
+      if (sameDay) return t;
+      const dm = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+      return `${dm} ${t}`;
+    }
+
+    // Ham temas günlüğü: "kim kimi ne zaman gördü" okunur tablosu.
+    // Yön korunur: Raporlayan = teması gören/bildiren cihaz, Görülen = karşı taraf.
+    // En yeni temas üstte (backend lastSeenAt DESC döndürür).
+    function renderContactLog() {
+      const wrap = document.getElementById('contactLogWrap');
+      const events = contactEvents || [];
+      if (!events.length) { wrap.innerHTML = ''; return; }
+      const rows = events.map(e => `
+        <tr>
+          <td><span class="anon">${e.reporterAnonId}</span><span class="arrow"> → </span><span class="anon">${e.seenAnonId}</span></td>
+          <td>${fmtTime(e.firstSeenAt)}</td>
+          <td>${fmtTime(e.lastSeenAt)}</td>
+          <td class="num">${fmtDur(e.durationSeconds)}</td>
+          <td class="num">${e.avgRssi} dBm<br><span class="muted">~${rssiToMeters(e.avgRssi).toFixed(1)}m</span></td>
+          <td>${e.locationName ? `<span class="stand-tag">${e.locationName}</span>` : '<span class="muted">—</span>'}</td>
+        </tr>`).join('');
+      wrap.innerHTML =
+        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kimi ne zaman gördü (${events.length} kayıt, en yeni üstte). ` +
+        `Yön: <b style="color:#888">Raporlayan</b> cihazı, <b style="color:#888">Görülen</b> cihazı gördü.</div>` +
+        '<div class="clog-scroll"><table class="clog"><thead><tr>' +
+        '<th>Raporlayan → Görülen</th><th>Başlangıç</th><th>Bitiş</th>' +
+        '<th class="num">Süre</th><th class="num">Ort. RSSI</th><th>Stand</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+    }
+
+    // Stand bazlı temas: hangi standda kaç yakınlaşma oldu (networking hotspot).
+    // Yatay bar — stand isimleri uzun olabilir, okunaklı kalsın.
+    function renderContactStands() {
+      const wrap = document.getElementById('contactStandWrap');
+      const sb = contactStats?.standBreakdown || [];
+      if (!sb.length) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+      const ctx = document.getElementById('contactStandChart').getContext('2d');
+      if (contactStandChart) contactStandChart.destroy();
+      contactStandChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sb.map(s => s.locationName),
+          datasets: [{ data: sb.map(s => s.count), backgroundColor: '#f59e0b', borderRadius: 3 }],
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true, grid: { color: '#1f1f1f' } }, y: { grid: { display: false } } },
+        },
+      });
+    }
+
+    // Ölçek-bağımsız dağılım grafikleri: binlerce kişide bile 5 kovalı bar okunur.
+    function renderContactDistributions() {
+      const wrap = document.getElementById('contactDistWrap');
+      if (!contactStats || contactStats.totalContacts === 0) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+
+      const dd = contactStats.degreeDistribution || [];
+      const ctxDeg = document.getElementById('contactDegreeChart').getContext('2d');
+      if (contactDegreeChart) contactDegreeChart.destroy();
+      contactDegreeChart = new Chart(ctxDeg, {
+        type: 'bar',
+        data: { labels: dd.map(b => b.label), datasets: [{ data: dd.map(b => b.count), backgroundColor: '#a78bfa', borderRadius: 3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#1f1f1f' } } } },
+      });
+
+      const du = contactStats.durationDistribution || [];
+      const ctxDur = document.getElementById('contactDurationChart').getContext('2d');
+      if (contactDurationChart) contactDurationChart.destroy();
+      contactDurationChart = new Chart(ctxDur, {
+        type: 'bar',
+        data: { labels: du.map(b => b.label), datasets: [{ data: du.map(b => b.count), backgroundColor: '#60a5fa', borderRadius: 3 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: '#1f1f1f' } } } },
+      });
+    }
+
+    // En aktif kişiler (en çok farklı kişiyle temas eden) — her ölçekte okunur.
+    function renderContactTopPeople() {
+      const el = document.getElementById('contactTopPeople');
+      const people = (contactStats?.participants || []).slice(0, 10);
+      if (!people.length) { el.innerHTML = ''; return; }
+      el.innerHTML =
+        '<div style="font-size:11px;color:#555;margin-bottom:2px">En aktif kişiler (en çok farklı kişiyle temas):</div>' +
+        people.map(p => `
+          <div class="contact-pair">
+            <span class="names">${p.anonId}</span>
+            <span class="meta">
+              <div class="cnt">${p.degree} kişi</div>
+              <div class="sub">${p.contacts} temas · ${fmtDur(p.totalDuration)}</div>
+            </span>
+          </div>`).join('');
+    }
+
+    // Temas matrisi: satır/sütun = kişiler (anonId), hücre = temas sayısı,
+    // renk koyuluğu = toplam temas süresi. Yönsüz (A↔B simetrik).
+    function renderContactMatrix() {
+      const wrap = document.getElementById('contactMatrixWrap');
+      // Matris yalnız küçük etkinlikte anlamlı (N² hücre). Backend showMatrix=false
+      // dönerse (>15 kişi) matris çizilmez — panel dağılım grafiklerine güvenir.
+      if (!contactStats || !contactStats.showMatrix) {
+        const n = contactStats?.uniqueDevicesInvolved ?? 0;
+        wrap.style.display = n > 15 ? 'block' : 'none';
+        if (n > 15) {
+          wrap.innerHTML =
+            `<div style="font-size:11px;color:#666;background:#161616;border:1px solid #262626;border-radius:8px;padding:10px">` +
+            `👥 <b>${n} kişi</b> — temas matrisi bu ölçekte okunamayacağı için gizlendi ` +
+            `(${n}×${n} ≈ ${(n * n).toLocaleString('tr-TR')} hücre). ` +
+            `Yukarıdaki dağılım grafiklerine ve "en aktif kişiler" listesine bak.</div>`;
+        }
+        return;
+      }
+      const people = (contactStats.participants || []).slice(0, 15);
+      if (people.length < 2) { wrap.style.display = 'none'; return; }
+      wrap.style.display = 'block';
+
+      const ids = people.map(p => p.anonId);
+      const pm = {};
+      let maxDur = 1;
+      for (const p of (contactStats.pairs || [])) {
+        pm[`${p.a}|${p.b}`] = p;
+        pm[`${p.b}|${p.a}`] = p;
+        if (p.totalDuration > maxDur) maxDur = p.totalDuration;
+      }
+
+      let t = '<table class="cmatrix"><thead><tr><th></th>';
+      for (const id of ids) t += `<th>${id}</th>`;
+      t += '</tr></thead><tbody>';
+      for (const rid of ids) {
+        t += `<tr><th>${rid}</th>`;
+        for (const cid of ids) {
+          if (rid === cid) { t += '<td class="diag">·</td>'; continue; }
+          const p = pm[`${rid}|${cid}`];
+          if (!p) { t += '<td class="empty">·</td>'; continue; }
+          const intensity = p.totalDuration / maxDur;
+          const bg = `rgba(167,139,250,${(0.15 + 0.85 * intensity).toFixed(2)})`;
+          t += `<td style="background:${bg}" title="${rid} ↔ ${cid}: ${p.count} temas · ${fmtDur(p.totalDuration)} · ${p.avgRssi}dBm (~${rssiToMeters(p.avgRssi).toFixed(1)}m)">${p.count}</td>`;
+        }
+        t += '</tr>';
+      }
+      t += '</tbody></table>';
+      wrap.innerHTML =
+        '<div style="font-size:11px;color:#555;margin-bottom:4px">Temas matrisi — hücre: temas sayısı, renk: toplam süre. Üzerine gel: detay.</div>' +
+        '<div class="matrix-scroll">' + t + '</div>';
     }
 
     function renderBeaconList() {
@@ -615,118 +913,6 @@
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // CONTACT NETWORK MINI-GRAPH (canvas force-directed, dependency-free)
-    // ─────────────────────────────────────────────────────────────────────
-    function renderContactGraph() {
-      const c = document.getElementById('contactGraph');
-      if (!c) return;
-      const cx = c.getContext('2d');
-      cx.clearRect(0, 0, c.width, c.height);
-      cx.fillStyle = '#0f0f0f';
-      cx.fillRect(0, 0, c.width, c.height);
-
-      const pairs = (contactStats?.topPairs ?? []).slice(0, 10);
-      if (!pairs.length) return;
-
-      // Node set + edge list
-      const nodes = new Map(); // id → { x, y, vx, vy }
-      const edges = [];
-      const radius = 90;
-      for (const p of pairs) {
-        if (!nodes.has(p.deviceId)) nodes.set(p.deviceId, { id: p.deviceId, type: 'd' });
-        if (!nodes.has(p.seenAnonId)) nodes.set(p.seenAnonId, { id: p.seenAnonId, type: 'a' });
-        edges.push({ a: p.deviceId, b: p.seenAnonId, w: p.count });
-      }
-
-      // Çember üzerinde rastgele başlat (deterministik: id'ye göre)
-      const nodeArr = Array.from(nodes.values());
-      const cw = c.width / 2;
-      const ch = c.height / 2;
-      nodeArr.forEach((n, i) => {
-        const angle = (i / nodeArr.length) * Math.PI * 2;
-        n.x = cw + Math.cos(angle) * radius;
-        n.y = ch + Math.sin(angle) * radius;
-        n.vx = 0; n.vy = 0;
-      });
-
-      // Basit force-directed: 80 iterasyon
-      for (let iter = 0; iter < 80; iter++) {
-        // Repulsion (her node arası)
-        for (let i = 0; i < nodeArr.length; i++) {
-          for (let j = i + 1; j < nodeArr.length; j++) {
-            const a = nodeArr[i], b = nodeArr[j];
-            const dx = a.x - b.x, dy = a.y - b.y;
-            const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-            const force = 600 / (dist * dist);
-            const fx = (dx / dist) * force;
-            const fy = (dy / dist) * force;
-            a.vx += fx; a.vy += fy;
-            b.vx -= fx; b.vy -= fy;
-          }
-        }
-        // Attraction (edge'ler boyunca)
-        const nodeMap = new Map(nodeArr.map(n => [n.id, n]));
-        for (const e of edges) {
-          const a = nodeMap.get(e.a);
-          const b = nodeMap.get(e.b);
-          if (!a || !b) continue;
-          const dx = b.x - a.x, dy = b.y - a.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-          const desired = 70;
-          const k = 0.015 * Math.log(1 + e.w);
-          const force = (dist - desired) * k;
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          a.vx += fx; a.vy += fy;
-          b.vx -= fx; b.vy -= fy;
-        }
-        // Gravity → merkez
-        for (const n of nodeArr) {
-          n.vx += (cw - n.x) * 0.005;
-          n.vy += (ch - n.y) * 0.005;
-          n.x += n.vx * 0.2;
-          n.y += n.vy * 0.2;
-          n.vx *= 0.85; n.vy *= 0.85;
-          // canvas içine kıs
-          n.x = Math.max(15, Math.min(c.width - 15, n.x));
-          n.y = Math.max(15, Math.min(c.height - 15, n.y));
-        }
-      }
-
-      // Edge'leri çiz
-      const maxW = Math.max(...pairs.map(p => p.w));
-      const nodeMap = new Map(nodeArr.map(n => [n.id, n]));
-      for (const e of edges) {
-        const a = nodeMap.get(e.a);
-        const b = nodeMap.get(e.b);
-        if (!a || !b) continue;
-        cx.strokeStyle = `rgba(167, 139, 250, ${0.3 + 0.7 * (e.w / maxW)})`;
-        cx.lineWidth = 1 + 2 * (e.w / maxW);
-        cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
-      }
-
-      // Node'ları çiz (deviceId = mavi, anon = mor)
-      for (const n of nodeArr) {
-        cx.beginPath();
-        cx.fillStyle = n.type === 'd' ? '#60a5fa' : '#c084fc';
-        cx.arc(n.x, n.y, 7, 0, Math.PI * 2);
-        cx.fill();
-        cx.fillStyle = '#aaa';
-        cx.font = '9px monospace';
-        cx.fillText(n.id, n.x + 9, n.y + 3);
-      }
-
-      // Legend
-      cx.fillStyle = '#888';
-      cx.font = '10px sans-serif';
-      cx.fillText('● rapor eden cihaz', 10, c.height - 16);
-      cx.fillStyle = '#c084fc';
-      cx.fillText('● görülen cihaz', 10, c.height - 4);
-      cx.fillStyle = '#60a5fa';
-      cx.fillText('●', 0, c.height - 16);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
     // CANVAS HARITA (mevcut davranış korundu)
     // ─────────────────────────────────────────────────────────────────────
     async function deleteBeacon(id) {
@@ -759,6 +945,28 @@
       await loadAll();
     }
 
+    // Elle stand ekle. Konum verilmez → stand "yerleştirilmemiş" gelir; listeden
+    // "Haritaya koy" + sürükleyerek konumlandırılır (backend artık rastgele
+    // konum atamıyor). İsim idempotent (aynı isim ikinci kez eklenince mevcut
+    // döner, duplicate olmaz).
+    async function addStand() {
+      const inp = document.getElementById('newStandName');
+      const name = (inp.value || '').trim();
+      if (!name) { inp.focus(); return; }
+      try {
+        const res = await fetch('/api/stands', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) { alert('Stand eklenemedi: ' + (await res.text())); return; }
+        inp.value = '';
+        await loadAll();
+      } catch (e) {
+        alert('Stand ekleme hatası: ' + e.message);
+      }
+    }
+
     function autoLayoutBeacons() {
       if (!beacons.length) { alert('Yerleştirilecek beacon yok.'); return; }
       if (!confirm(`${beacons.length} beacon 1m aralıklı grid'e yerleştirilecek. Mevcut konumlar değişecek. Devam?`)) return;
@@ -785,6 +993,7 @@
         }
       }
       for (const s of stands) {
+        if (s.x < 0 || s.y < 0) continue; // yerleştirilmemiş stand haritada yok
         const { px: sx, py: sy } = toCanvas(s.x, s.y);
         if (Math.hypot(px - sx, py - sy) < 16) {
           _frozenRoom = computeRoom();
@@ -887,6 +1096,7 @@
 
       // STAND NOKTALARI
       stands.forEach(s => {
+        if (s.x < 0 || s.y < 0) return; // yerleştirilmemiş: haritaya çizilmez (listede gösterilir)
         const { px, py } = toCanvas(s.x, s.y);
         const dwell = dwellMap[s.name];
         ctx.fillStyle = dwell ? '#22c55e' : '#6b7280';
@@ -905,7 +1115,31 @@
     // INIT
     document.getElementById('heatmapToggle').checked = showHeatmap;
     loadAll();
-    setInterval(loadAll, 5000);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // GERÇEK ZAMANLI GÜNCELLEME — WebSocket (anlık push) + polling fallback.
+    // Sia özeti "Paneller için WebSocket veri yayını" maddesi. WS bağlanınca
+    // backend her yeni visit/contact'ta "data-changed" yayınlar → anında
+    // loadAll(). WS yoksa/koparsa 5sn polling devreye girer; yani panel her
+    // koşulda güncel kalır.
+    // ─────────────────────────────────────────────────────────────────────
+    let pollTimer = setInterval(loadAll, 5000);
+    function setPoll(ms) { clearInterval(pollTimer); pollTimer = setInterval(loadAll, ms); }
+    const wsBadge = document.getElementById('wsStatus');
+    try {
+      const socket = io({ transports: ['websocket', 'polling'] });
+      socket.on('connect', () => {
+        if (wsBadge) { wsBadge.textContent = '● canlı (WS)'; wsBadge.style.color = '#22c55e'; }
+        setPoll(30000); // WS varken seyrek güvenlik polling yeterli
+      });
+      socket.on('data-changed', () => loadAll());
+      socket.on('disconnect', () => {
+        if (wsBadge) { wsBadge.textContent = '○ polling'; wsBadge.style.color = '#888'; }
+        setPoll(5000); // WS koptu → sık polling fallback
+      });
+    } catch (e) {
+      console.warn('WS başlatılamadı, polling devrede:', e);
+    }
   </script>
 </body>
 </html>
