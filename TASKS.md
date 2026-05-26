@@ -169,7 +169,7 @@ Bitirme savunması öncesi yapılması gerekenler, öncelik sırasıyla. Her gö
 ## 🟢 Öncelik 3 — Polish (Vakit Kalırsa)
 
 ### 3.1 Real-time WebSocket
-- [~] **Scope dışı** ("Gerçek WebSocket — polling yeterli"). Atlandı.
+- [x] **Yapıldı (2026-05-22)** — kullanıcı onayıyla scope'a alındı. socket.io gateway + admin panel hybrid (WS push + polling fallback). Detay aşağıda 2.20.
 
 ### 3.2 Error UX iyileştirme (Mobil)
 - [x] `_friendlyError` — raw Exception mesajlarını Türkçe user-facing metinlere çevirir.
@@ -320,3 +320,81 @@ Commit: `feat(contact): cross-platform tracing — iOS service UUID + flutter_bl
 **Sebep**: Saha günü kullanıcı IP yazmasın diye. Subnet scan mDNS'e tercih edildi çünkü fakülte/kurumsal WiFi'lerde multicast genelde blocked. /24 = 254 IP × 32 paralel = ~1-2 saniyede biter.
 
 Commit: `feat(discovery): otomatik backend keşfi (subnet scan + /api/discover)`
+
+---
+
+## 🔍 2026-05-22 Sunum Hazırlık İncelemesi (Sia PDF kontrolü + bug fix)
+
+Sia proje özeti (PDF) ile mevcut kod baştan sona karşılaştırıldı, bug taraması yapıldı. Tüm ana özellikler mevcut çıktı; 3 düzeltme + 1 yeni özellik eklendi. Backend build/test, flutter analyze/test temiz; mock veri ile uçtan uca doğrulandı.
+
+### 2.20 Gerçek Zamanlı WebSocket (Sia "WebSocket veri yayını" maddesi)
+- [x] `@nestjs/websockets` + `@nestjs/platform-socket.io` kuruldu.
+- [x] `events/events.gateway.ts` — `EventsGateway.emitDataChanged(kind)`; `events/events.module.ts` export.
+- [x] `VisitsService` + `ContactsService` create/upsert sonrası `emitDataChanged` yayınlar (EventsModule import).
+- [x] Admin panel: socket.io-client CDN + hybrid. WS bağlıyken anlık push + 30sn güvenlik polling; WS koparsa 5sn polling fallback. Header'da "● canlı (WS)" / "○ polling" göstergesi.
+- [x] Test: socket.io handshake 200; client bağlanıp visit POST'unda `data-changed` event'i anında alındı.
+- **Not:** Polling KALDIRILMADI — fallback olarak korundu (demo güvenliği). REST/stats endpoint'lerine dokunulmadı.
+- Commit: `feat(realtime): WebSocket veri yayını + admin panel hybrid (polling fallback)`
+
+### 2.21 Self-contact Guard (bug fix)
+- [x] `BeaconController._selfContactAnonId` — initSdk'da kendi deviceId'sinden hesaplanır; `_onContactBeacon` kendi iBeacon yayınını görürse atlar.
+- **Neden:** Bazı Android cihazlar kendi advertisement'ını ranging'de görüyor → cihaz kendisiyle "contact" kaydı oluşturabiliyordu. flutter_blue_plus scanner'da zaten self-skip vardı; iBeacon ranging tarafının karşılığı eklendi.
+- Commit: `fix(contact): iBeacon ranging self-contact guard`
+
+### 2.22 Uzun Temas Süresi Re-report (bug fix)
+- [x] `kContactReReportIntervalSeconds=60`. `ContactEncounter`'a `clientEventId` (sabit) + `lastReportedAt`.
+- [x] `ContactController._maybeTriggerContact` — ilk eşik aşımında gönderir, sonra her 60sn'de güncel süreyle AYNI clientEventId ile re-report (sayaç sadece ilk raporda artar).
+- [x] `ApiService.sendContactEvent` — opsiyonel `clientEventId` parametresi (verilmezse v4 üretir, geriye uyumlu).
+- [x] Backend `ContactsService.create` — duplicate clientEventId'de UPDATE (upsert): lastSeen/duration/avgRssi/sampleCount güncellenir, firstSeen sabit.
+- [x] Mock test: aynı clientEventId 60s→300s re-report → tek kayıt, süre güncellendi (`updated:true`), yeni satır yok.
+- **Neden:** Önceden contact bir kez tetiklenip ~60sn'de donuyordu; "kişi başı ortalama temas süresi" çıktısı (Sia beklenen çıktı) gerçek süreyi yansıtmıyordu.
+- Commit: `fix(contact): uzun temas süresi re-report + backend upsert`
+
+### 2.23 Temas Görselleştirme Düzeltmesi (kimlik normalizasyonu + matris)
+- [x] **Kök sorun:** Panel temas grafiği her cihazı İKİ düğümle çiziyordu — "rapor eden" (deviceId tam hash) ve "görülen" (seenAnonId kısa). Aynı kişi iki düğüm → graf okunmuyordu, `uniqueDevicesInvolved` da şişiyordu (5 kişi → ~10).
+- [x] Backend `StatsService.deviceIdToAnonId` — deviceId'nin ilk 4 byte'ı anonId'ye indirgenir (mobil encodeDeviceId ile aynı). `getContactStats` artık yönsüz çift (A↔B=B↔A) toplar; `participants` + `pairs` döndürür; `uniqueDevicesInvolved` GERÇEK kişi sayısı.
+- [x] Admin panel: karışık force-directed graf kaldırıldı. Yerine **temas matrisi** (kişi×kişi, hücre=temas sayısı, renk=toplam süre, hover=detay) + **sıralı çift listesi** (süre + ~mesafe + RSSI).
+- [x] Mock demo doğrulama: 5 kişi, 10 temas → matris doğru; Ali↔Veli yönsüz birleşti (×3, 635s). `topPairs` geriye uyumlu tutuldu (PDF raporu etkilenmedi).
+- Commit: `fix(contact): kimlik normalizasyonu + panel temas matrisi (graf yerine)`
+
+### 2.25 Temas Kaydına Konum (stand bazlı temas)
+- [x] **Neden:** Temas kaydında konum yoktu → "kim kiminle" vardı ama "nerede" yoktu. Fuar organizatörü için "hangi stand networking hotspot / nerede kalabalık" bilgisi yoktu. Mobilde temas anındaki konum (detectedLocation) zaten biliniyordu ama kaydedilmiyordu.
+- [x] Backend: `ContactEvent.locationName` (nullable) + DTO + service (insert & upsert) + `getContactStats.standBreakdown` (locationName→count/totalDuration, en çok temas önce).
+- [x] Mobil: `ApiService.sendContactEvent` locationName param + `BeaconController` trigger'da `state.detectedLocation` geçirilir (konum yoksa null).
+- [x] Panel: "Stand Bazlı Temas" yatay bar grafiği (networking hotspot). 5 kişi demo: Sony Standı 3 temas hotspot; 500 kişi: Sony 1076 temas.
+- [x] Şema: nullable kolon, eski veri bozulmaz (synchronize ALTER). Backend build + 80 flutter test + 1 backend test temiz.
+- Commit: `feat(contact): temas kaydına konum + stand bazlı temas grafiği`
+
+### 2.26 UUID Gömme + Admin Stand Ekleme (kullanıcı isteği 2026-05-22)
+- [x] **UUID gömüldü:** `kDefaultBeaconUuid = 'E2C56DB5-DFFB-48D2-B060-D0F5A71096E0'` (beacon_config). `initSdk` kayıtlı target yoksa varsayılanla başlatıp diske yazar. Yeni cihazda UUID elle girilmez, tarama otomatik başlar.
+- [x] Mobil "Beacon Hedefi" UUID giriş alanı + `_uuidCtrl` kaldırıldı (beacon_page). `saveTarget` API'si duruyor (ileride lazım olursa).
+- [x] **Admin panel "Stand Ekle" formu geri geldi** (2.7'de kaldırılmıştı — kullanıcı geri istedi). İsim input + "+ Stand Ekle" butonu → `POST /api/stands` (idempotent, auto-grid). Konum boş → 1m grid, sonra haritadan sürükle. Mobil fingerprint→stand akışı da korundu (ikisi birlikte).
+- [x] Karar değişikliği: Stand'lar artık HEM mobilden (fingerprint) HEM admin panelden elle eklenebilir. Beacon'lar yine sadece mobilden otomatik.
+- [x] flutter analyze temiz (1 pre-existing), 80 test geçti. Stand ekleme curl: 201 + idempotent doğrulandı.
+- Commit: `feat: beacon UUID gömüldü + admin panel elle stand ekleme`
+
+### 2.27 Fingerprint Senkronu (radio map paylaşımı) + DB temizliği
+- [x] **Sorun:** Beacon koordinatları tüm cihazlara senkronlanıyordu ama fingerprint'ler değil — sadece stand İSMİ backend'e gidiyordu, RSSI parmak izi telefonda kalıyordu. Diğer cihazlar fingerprint konumlama yapamıyordu.
+- [x] Backend: `Fingerprint` entity (`rssiMap` simple-json) + DTO + service (upsert) + `POST/GET/DELETE /api/fingerprints` + module + app.module + AdminService.wipe + AdminModule.
+- [x] Mobil: `ApiService.pushFingerprint/fetchFingerprints/deleteFingerprint`. `saveCurrentFingerprint` → rssiMap'i de push eder. `syncFingerprintsFromBackend` (id dedup, backend authoritative) initSdk'da çağrılır. `removeFingerprint` backend'den de siler.
+- [x] Sonuç: bir cihaz mekânı haritalar (her stand'da "Konum Kaydet"), diğer tüm cihazlar açılışta indirip kullanır. Beacon senkronuyla simetrik.
+- [x] Test: curl push/upsert/GET/400/wipe ✅; backend build + 1 test ✅; flutter analyze (1 pre-existing) + 80 test ✅.
+- Commit: `feat: fingerprint (radio map) backend senkronu — cihazlar arası paylaşım`
+
+### DB Temizliği (2026-05-23)
+- [x] `database.sqlite` temizlendi (eski 29 Nisan visit'leri + benim 21 Mayıs smoke test contact'ı + kapı/duvar stand). Yedek alındı: `database.sqlite.bak-*`. visit 4→0, contact 2→0, stand 2→0.
+- Sebep: Kullanıcı panelde eski test verisini gerçek sanıp karıştı; temiz başlangıç için.
+
+### 2.28 Saha Günü Kolaylıkları (kullanıcı isteği 2026-05-23)
+- [x] **Sunucu bağlantı göstergesi** (`_ConnectionIndicator`): ana ekranda yeşil/kırmızı "Sunucu bağlı/bağlanılamıyor" + URL, 10 sn'de bir `/api/discover` ping. Bağlantı yoksa "Tekrar Dene" butonu. `ApiService.pingServer` + `currentBaseUrl`. Saha günü #1 sorunun (bağlantı) anında teşhisi.
+- [x] **Manuel "Senkronize Et" butonu** (AppBar 🔄): `syncAllFromBackend` → fingerprint + beacon koordinatlarını çeker, snackbar "X konum · Y beacon". Restart beklemeden güncelleme.
+- [x] **Periyodik otomatik sync** (`_syncTimer`, 30 sn): ikinci telefon, birinci telefon haritalarken canlı güncellensin. initSdk başlatır; stop/wipe/dispose temizler.
+- [x] flutter analyze (1 pre-existing) + 80 test ✅.
+- Commit: `feat(mobil): sunucu bağlantı göstergesi + manuel/periyodik senkron`
+
+### Sia PDF eşleştirme sonucu
+- ✅ Tüm ana özellikler mevcut. Bilinçli sapmalar (tezde "Kapsam ve Kısıtlamalar"da belirtilecek):
+  - **Anlık gönderim** (PDF "günde birkaç kez") — gerçek zamanlı panel için bilinçli. KORUNDU.
+  - **At-rest şifreleme yok** — veri zaten anonim hash; HTTPS altyapısı kodda mevcut (`_useHttps` flag), saha testinde HTTP. Tezde gerekçelenecek.
+  - **iOS arka plan contact** — Apple kısıtı (kapsam notu).
+- ⚠️ Demo notu: ilk smoke test sırasında gerçek `database.sqlite`'a 1 örnek contact yazıldı — demo öncesi admin panel "🗑️ Tüm Veriyi Sil" ile temizlenebilir.
