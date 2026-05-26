@@ -146,7 +146,19 @@ class ContactAdvertiser {
         return false;
       }
 
-      final state = await _peripheral.start(advertiseData: data);
+      // BUG FIX (kritik — Galaxy A20s vb.): flutter_ble_peripheral'in default
+      // AdvertiseSettings.advertiseSet=true → native startAdvertisingSet
+      // (BLE 5.0 EXTENDED advertising) kullanıyor. Giriş seviyesi / eski
+      // Android cihazlar (A20s 2019) extended advertising DESTEKLEMEZ →
+      // "PlatformException(18, UNDOCUMENTED, startAdvertisingSet)". iBeacon
+      // zaten LEGACY advertising (31-byte paket) ile yayınlanır; extended'e
+      // gerek yok. advertiseSet:false → plugin legacy startAdvertising
+      // (AdvertiseCallback) kullanır, A20s'in desteklediği klasik yol.
+      // iOS bu flag'ten etkilenmez (CoreBluetooth kendi yönetir).
+      final state = await _peripheral.start(
+        advertiseData: data,
+        advertiseSettings: AdvertiseSettings(advertiseSet: false),
+      );
       _lastStartState = state;
       debugPrint('📡 [ContactAdvertiser] start → $state');
       // BUG FIX: Eskiden state ne dönerse dönsün _isRunning=true set
