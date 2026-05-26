@@ -7,7 +7,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'api_service.dart';
-import 'beacon_config.dart';
 import 'beacon_controller.dart';
 import '../contact/contact_controller.dart';
 import '../settings/settings_page.dart';
@@ -40,23 +39,14 @@ class BeaconPage extends ConsumerStatefulWidget {
 }
 
 class _BeaconPageState extends ConsumerState<BeaconPage> {
-  late final TextEditingController _uuidCtrl;
-  bool _uuidFieldInitialized = false;
-
   @override
   void initState() {
     super.initState();
-    _uuidCtrl = TextEditingController();
-
+    // UUID gömülü (kDefaultBeaconUuid): açılışta initSdk otomatik varsayılan
+    // target ile taramayı başlatır. Elle UUID girişi yok.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(beaconControllerProvider.notifier).initSdk();
     });
-  }
-
-  @override
-  void dispose() {
-    _uuidCtrl.dispose();
-    super.dispose();
   }
 
   @override
@@ -64,16 +54,29 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
     final state = ref.watch(beaconControllerProvider);
     final ctrl = ref.read(beaconControllerProvider.notifier);
 
-    final t = state.target;
-    if (!_uuidFieldInitialized && t != null) {
-      _uuidFieldInitialized = true;
-      _uuidCtrl.text = t.uuid;
-    }
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Beetinq Sense'),
         actions: [
+          // Manuel senkron: fingerprint + beacon koordinatlarını backend'den çek.
+          IconButton(
+            icon: const Icon(Icons.sync),
+            tooltip: 'Senkronize Et',
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              messenger.showSnackBar(const SnackBar(
+                content: Text('🔄 Senkronize ediliyor…'),
+                duration: Duration(seconds: 1),
+              ));
+              final r = await ctrl.syncAllFromBackend();
+              if (!context.mounted) return;
+              messenger.showSnackBar(SnackBar(
+                content: Text(
+                    '✅ Senkronize edildi: ${r.fingerprints} konum · ${r.beacons} beacon'),
+                backgroundColor: Colors.green,
+              ));
+            },
+          ),
           // Gizlilik ayarları (KVKK opt-out)
           IconButton(
             icon: const Icon(Icons.settings),
@@ -137,47 +140,11 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
           child: ListView(
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             children: [
+              // ── SUNUCU BAĞLANTI DURUMU ────────────────────────────────
+              const _ConnectionIndicator(),
+              const SizedBox(height: 12),
               // ── CONTACT TRACING GÖSTERGEÇ ─────────────────────────────
               const _ContactIndicator(),
-              const SizedBox(height: 12),
-              // ── BEACON HEDEF TANIMI ───────────────────────────────────
-              _Section(
-                title: 'Beacon Hedefi',
-                child: Column(
-                  children: [
-                    TextField(
-                      controller: _uuidCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'UUID',
-                        hintText: 'E2C56DB5-DFFB-48D2-B060-D0F5A71096E0',
-                      ),
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) => FocusScope.of(context).unfocus(),
-                      autocorrect: false,
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton(
-                          onPressed: () async {
-                            final uuid = _uuidCtrl.text.trim().toUpperCase();
-                            await ctrl.saveTarget(
-                              BeaconTarget(uuid: uuid),
-                            );
-                          },
-                          child: const Text('Kaydet'),
-                        ),
-                        OutlinedButton(
-                          onPressed: () => _uuidCtrl.clear(),
-                          child: const Text('Temizle'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
               const SizedBox(height: 12),
 
               // ── SİSTEM DURUMU ────────────────────────────────────────
@@ -1054,6 +1021,90 @@ class _ContactIndicator extends ConsumerWidget {
                 style: const TextStyle(fontSize: 12),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── SUNUCU BAĞLANTI GÖSTERGESİ ────────────────────────────────────────────
+// Periyodik /api/discover ping ile backend'e ulaşılıyor mu gösterir. Saha
+// günü "bağlanamıyorum" sorununu anında teşhis etmek için.
+class _ConnectionIndicator extends StatefulWidget {
+  const _ConnectionIndicator();
+
+  @override
+  State<_ConnectionIndicator> createState() => _ConnectionIndicatorState();
+}
+
+class _ConnectionIndicatorState extends State<_ConnectionIndicator> {
+  bool? _connected; // null = ilk kontrol
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _check();
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _check());
+  }
+
+  Future<void> _check() async {
+    final ok = await ApiService.pingServer();
+    if (mounted) setState(() => _connected = ok);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // "http://192.168.1.42:3000/api" → "192.168.1.42:3000"
+    final url = ApiService.currentBaseUrl
+        .replaceAll(RegExp(r'^https?://'), '')
+        .replaceAll('/api', '');
+    final c = _connected;
+    final color = c == null ? Colors.grey : (c ? Colors.green : Colors.red);
+    final label = c == null
+        ? 'Sunucu kontrol ediliyor…'
+        : (c ? 'Sunucu bağlı' : 'Sunucuya bağlanılamıyor');
+    final icon = c == null
+        ? Icons.cloud_queue
+        : (c ? Icons.cloud_done : Icons.cloud_off);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: color)),
+                  Text(url,
+                      style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                ],
+              ),
+            ),
+            if (c == false)
+              TextButton(
+                onPressed: () => _check(),
+                child: const Text('Tekrar Dene'),
+              ),
           ],
         ),
       ),

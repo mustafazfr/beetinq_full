@@ -23,6 +23,14 @@ const int kContactDurationSeconds = 60;
 /// Eviction eşiği: bu süredir görülmeyen encounter RAM'den silinir.
 const int kContactEvictionSeconds = 300; // 5 dk
 
+/// Contact eşiği aşıldıktan sonra, encounter hâlâ aktifse her bu kadar
+/// saniyede bir güncel (daha uzun) süreyle tekrar raporlanır. Aynı
+/// clientEventId ile gider; backend upsert ile süreyi günceller. Böylece
+/// uzun temasların GERÇEK süresi kaydedilir — yoksa eşik bir kez aşılıp
+/// contact ~60sn olarak donuyordu ve "ortalama temas süresi" çıktısı yanıltıcı
+/// oluyordu.
+const int kContactReReportIntervalSeconds = 60;
+
 /// Device hash'ini (hex string) iBeacon major/minor çiftine çevirir.
 ///
 /// Hash SHA-256 hex (64 char). İlk 8 char (4 byte) alınır, 32-bit unsigned

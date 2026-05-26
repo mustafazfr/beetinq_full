@@ -24,7 +24,7 @@ android {
         applicationId = "com.example.beetinq_sense"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 21  // dchs_flutter_beacon Android 21+ gerektiriyor
+        minSdk = flutter.minSdkVersion  // dchs_flutter_beacon Android 21+ gerektiriyor
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

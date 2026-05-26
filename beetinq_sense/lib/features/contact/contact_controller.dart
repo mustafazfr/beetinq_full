@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/contact/contact_config.dart';
 import '../../core/contact/contact_encounter.dart';
@@ -45,6 +46,7 @@ class ContactState {
 /// edilen davranış (kısa süreli karşılaşmalar zaten contact sayılmaz).
 class ContactController extends Notifier<ContactState> {
   final Map<String, ContactEncounter> _encounters = {};
+  static const _uuid = Uuid();
 
   /// Eşik aşıldığında çağrılır (Task 1.5.7 — ApiService.sendContactEvent).
   /// Set edilmediyse no-op; encounter yine reportedAsContact=true olarak
@@ -70,6 +72,7 @@ class ContactController extends Notifier<ContactState> {
         seenAnonId: anonId,
         firstSeen: now,
         lastSeen: now,
+        clientEventId: _uuid.v4(),
         samples: [sample],
       );
     } else {
@@ -94,7 +97,6 @@ class ContactController extends Notifier<ContactState> {
   }
 
   void _maybeTriggerContact(ContactEncounter e) {
-    if (e.reportedAsContact) return;
     if (e.duration.inSeconds < kContactDurationSeconds) return;
 
     final recent = e.recentWindow(
@@ -103,22 +105,38 @@ class ContactController extends Notifier<ContactState> {
     // RSSI negatif; "> -80" sinyal güçlü demek. count > 0 zaten sağlanıyor.
     if (recent.avg <= kContactRssiThreshold) return;
 
+    // İlk tetikleme mi yoksa periyodik re-report mı?
+    final firstReport = !e.reportedAsContact;
+    final shouldReReport = e.reportedAsContact &&
+        e.lastReportedAt != null &&
+        e.lastSeen.difference(e.lastReportedAt!).inSeconds >=
+            kContactReReportIntervalSeconds;
+
+    // İlk değil ve re-report zamanı da gelmediyse çık (gereksiz API trafiği yok).
+    if (!firstReport && !shouldReReport) return;
+
     e.reportedAsContact = true;
+    e.lastReportedAt = e.lastSeen;
     debugPrint(
-      '✅ [ContactController] Contact tetiklendi: ${e.seenAnonId} '
-      'süre=${e.duration.inSeconds}s avgRssi=${recent.avg.toStringAsFixed(1)}',
+      '✅ [ContactController] Contact ${firstReport ? "tetiklendi" : "güncellendi"}: '
+      '${e.seenAnonId} süre=${e.duration.inSeconds}s '
+      'avgRssi=${recent.avg.toStringAsFixed(1)}',
     );
 
     try {
+      // Aynı clientEventId ile gider → backend upsert ile süreyi günceller.
       _triggerContact?.call(e);
     } catch (err, st) {
       debugPrint('⚠️ [ContactController] trigger callback hatası: $err\n$st');
     }
 
-    state = state.copyWith(
-      reportedContactCount: state.reportedContactCount + 1,
-      lastContactAt: DateTime.now(),
-    );
+    // Sayaç sadece ilk raporda artar — re-report aynı contact'ın güncellemesi.
+    if (firstReport) {
+      state = state.copyWith(
+        reportedContactCount: state.reportedContactCount + 1,
+        lastContactAt: DateTime.now(),
+      );
+    }
   }
 
   void _evict(DateTime now) {

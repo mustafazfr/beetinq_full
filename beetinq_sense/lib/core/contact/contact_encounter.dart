@@ -14,17 +14,26 @@ class RssiSample {
 /// iki cihaz aynı encounter'ı paylaşır (kabul edilen risk — Task 1.5.2 notu).
 class ContactEncounter {
   final String seenAnonId;
+  /// Bu encounter için sabit idempotency anahtarı. Re-report'larda (uzun
+  /// temas süre güncellemesi) aynı değer gider; backend upsert ile tek kaydı
+  /// günceller. Encounter ilk oluştuğunda controller bir uuid v4 atar.
+  final String? clientEventId;
   final DateTime firstSeen;
   DateTime lastSeen;
   final List<RssiSample> samples;
   bool reportedAsContact;
+  /// Bu encounter en son ne zaman API'ye raporlandı. Re-report aralığı
+  /// (kContactReReportIntervalSeconds) buna göre ölçülür. null = hiç gönderilmedi.
+  DateTime? lastReportedAt;
 
   ContactEncounter({
     required this.seenAnonId,
     required this.firstSeen,
     required this.lastSeen,
+    this.clientEventId,
     List<RssiSample>? samples,
     this.reportedAsContact = false,
+    this.lastReportedAt,
   }) : samples = samples ?? <RssiSample>[];
 
   Duration get duration => lastSeen.difference(firstSeen);
