@@ -420,6 +420,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
 
     state = BeaconState.initial();
+
+    // BUG FIX (Mobil R5): wipeAndReset _btStateSub ve _authSub'ı cancel'lıyor;
+    // eskiden hiç restore edilmiyordu → kullanıcı uygulamayı kapatmazsa wipe
+    // sonrası Bluetooth toggle veya izin değişimi event'leri yutuluyor, UI
+    // "sistem hazır değil"de takılı kalıyordu. initSdk hem listener'ları
+    // tekrar bağlar hem target kayıtlıysa taramayı baştan başlatır.
+    await initSdk();
   }
 
   /// Contact tracing beacon'ları için callback (Task 1.5.5).
@@ -1072,7 +1079,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
             bool keepLocation;
             if (noActiveBeacons) {
-              // Sinyal kesintisi → süre bazlı koru (event sayacına dokunma)
+              // Sinyal kesintisi → süre bazlı koru.
+              // BUG FIX (Mobil R17): eskiden _locationLossCount'a dokunulmu-
+              // yordu; sinyal kesintisi ile sonradan gelen "beacon var, eşleş-
+              // me yok" event'leri karışıp sayaç hatalı birikiyordu (önceden
+              // 2 eşleşmesiz event + sonradan kesinti + sonra 3 eşleşmesiz →
+              // 5 sayar, oysa olaylar bağımsız). Kesinti dalında sayacı sıfırla.
+              _locationLossCount = 0;
               keepLocation = gap < _locationGracePeriod;
               _log(keepLocation
                   ? '⚡ Sinyal kesintisi (${gap.inSeconds}sn/${_locationGracePeriod.inSeconds}sn), konum korunuyor: ${state.detectedLocation}'
@@ -1243,6 +1256,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             _rows.clear();
             _filters.clear();
             _top3Stable = const [];
+            // BUG FIX (Mobil R1): watchdog süresince (15sn) _lastValidBeaconTime
+            // güncellenmediği için grace (30sn) hızla doluyor; restart sonrası
+            // bir-iki gecikmeli pakette session sahte olarak kapanıyordu. Restart
+            // grace timer'ı = "restart sonrası yine veri yok" süresi olmalı, yoksa
+            // dururken bile sinyal kesintisi + watchdog kombinasyonu visit bölüyor.
+            _lastValidBeaconTime = DateTime.now();
             state = state.copyWith(
               beacons: const [],
               top3: const [],
