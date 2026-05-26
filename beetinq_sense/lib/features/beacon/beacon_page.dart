@@ -201,6 +201,11 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                             if (Platform.isIOS)
                               _StatusRow(label: 'Monitoring', ok: state.monitoring),
                             _StatusRow(label: 'Ranging', ok: state.ranging),
+                            // Temas alt sistem durumları — sahada "Yayın/Tarama
+                            // gerçekten çalışıyor mu?" net görünsün. Temas
+                            // analizi opt-out kapalıyken ikisi de kırmızı (normal).
+                            _StatusRow(label: 'Temas Yayını', ok: state.contactAdvertising),
+                            _StatusRow(label: 'Temas Taraması', ok: state.contactScanning),
                           ],
                         ),
                         if (state.initialized)

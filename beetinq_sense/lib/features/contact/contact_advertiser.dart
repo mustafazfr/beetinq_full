@@ -110,10 +110,29 @@ class ContactAdvertiser {
 
       final state = await _peripheral.start(advertiseData: data);
       debugPrint('📡 [ContactAdvertiser] start → $state');
-      _isRunning = true;
-      return true;
+      // BUG FIX: Eskiden state ne dönerse dönsün _isRunning=true set
+      // ediliyordu → advertise başarısız olsa bile sessizce "çalışıyor" gibi
+      // davranıyordu, ContactBleScanner.start'a benzer state-bazlı kontrol yok.
+      // Sadece açıkça reddedilen durumlarda false dön; geri kalan unknown/
+      // success durumlarında true varsay (flutter_ble_peripheral start sonrası
+      // didStartAdvertising callback ile gerçek durumu raporlar — bunu da
+      // burada bekleyemeyiz çünkü Future hemen dönüyor).
+      // Net hata durumları: izin/destek/BT-off. unknown durumu Android'de
+      // start sırasında normaldir (didStartAdvertising sonradan gelir) →
+      // unknown'ı başarı say.
+      final ok = state != BluetoothPeripheralState.denied &&
+                 state != BluetoothPeripheralState.permanentlyDenied &&
+                 state != BluetoothPeripheralState.restricted &&
+                 state != BluetoothPeripheralState.unsupported &&
+                 state != BluetoothPeripheralState.turnedOff;
+      _isRunning = ok;
+      if (!ok) {
+        debugPrint('❌ [ContactAdvertiser] start başarısız: $state');
+      }
+      return ok;
     } catch (e, st) {
       debugPrint('❌ [ContactAdvertiser] start hatası: $e\n$st');
+      _isRunning = false;
       return false;
     }
   }

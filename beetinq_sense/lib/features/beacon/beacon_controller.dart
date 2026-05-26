@@ -84,6 +84,11 @@ class BeaconState {
   final bool initialized;
   final bool monitoring;
   final bool ranging;
+  // Temas tracing alt sistem durumları — sahada "Yayın/Tarama gerçekten
+  // çalışıyor mu?" göstergesi için. opt-out kapalıyken false; advertiser/
+  // scanner başarıyla başlamışsa true.
+  final bool contactAdvertising;
+  final bool contactScanning;
 
   final DateTime? currentSessionStart;
 
@@ -117,6 +122,8 @@ class BeaconState {
     required this.monitoringResults,
     required this.beacons,
     required this.top3,
+    this.contactAdvertising = false,
+    this.contactScanning = false,
     this.authorizationStatus,
     this.bluetoothState,
     this.target,
@@ -138,6 +145,8 @@ class BeaconState {
         monitoringResults: [],
         beacons: [],
         top3: [],
+        contactAdvertising: false,
+        contactScanning: false,
         detectedLocation: null,
         trilaterationX: null,
         trilaterationY: null,
@@ -152,6 +161,8 @@ class BeaconState {
     bool? initialized,
     bool? monitoring,
     bool? ranging,
+    bool? contactAdvertising,
+    bool? contactScanning,
     AuthorizationStatus? authorizationStatus,
     BluetoothState? bluetoothState,
     List<MonitoringResult>? monitoringResults,
@@ -172,6 +183,8 @@ class BeaconState {
       initialized: initialized ?? this.initialized,
       monitoring: monitoring ?? this.monitoring,
       ranging: ranging ?? this.ranging,
+      contactAdvertising: contactAdvertising ?? this.contactAdvertising,
+      contactScanning: contactScanning ?? this.contactScanning,
       authorizationStatus: authorizationStatus ?? this.authorizationStatus,
       bluetoothState: bluetoothState ?? this.bluetoothState,
       monitoringResults: monitoringResults ?? this.monitoringResults,
@@ -354,6 +367,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       if (Platform.isIOS) {
         ref.read(contactAdvertiserProvider).stop();
         ref.read(contactBleScannerProvider).stop();
+        // iOS arka planda contact yok → UI göstergelerini düşür.
+        state = state.copyWith(
+          contactAdvertising: false,
+          contactScanning: false,
+        );
       }
     }
 
@@ -372,17 +390,23 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       final enabled = await SettingsPrefs().isContactEnabled();
       if (!enabled) return;
       final reporterDeviceId = await _deviceId.getDeviceId();
-      await ref.read(contactAdvertiserProvider).start(reporterDeviceId);
+      final advOk = await ref
+          .read(contactAdvertiserProvider)
+          .start(reporterDeviceId);
       // Scanner foreground'a dönünce yeniden başlatılır (paused'da
       // flutter_blue_plus iOS'ta delayed scan yapıyor olabilir).
-      await ref.read(contactBleScannerProvider).start(
-        selfDeviceIdHash: reporterDeviceId,
-        onEncounter: (anonId, rssi, now) {
-          ref
-              .read(contactControllerProvider.notifier)
-              .onEncounterEvent(anonId, rssi, now);
-          _lastBeaconActivity = now;
-        },
+      final scanOk = await ref.read(contactBleScannerProvider).start(
+            selfDeviceIdHash: reporterDeviceId,
+            onEncounter: (anonId, rssi, now) {
+              ref
+                  .read(contactControllerProvider.notifier)
+                  .onEncounterEvent(anonId, rssi, now);
+              _lastBeaconActivity = now;
+            },
+          );
+      state = state.copyWith(
+        contactAdvertising: advOk,
+        contactScanning: scanOk,
       );
     } catch (e) {
       _log('contact advertiser/scanner resume hatası: $e');
@@ -402,6 +426,26 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   void setContactEnabledCache(bool enabled) {
     _contactEnabledCache = enabled;
     ref.read(contactBleScannerProvider).setContactEnabledCache(enabled);
+    // Opt-out kapatıldıysa state göstergelerini de düşür (settings_page
+    // advertiser/scanner.stop'u kendisi çağırıyor; biz sadece UI sync).
+    if (!enabled) {
+      state = state.copyWith(
+        contactAdvertising: false,
+        contactScanning: false,
+      );
+    }
+  }
+
+  /// Settings opt-in sonrası advertiser/scanner start sonuçlarını UI
+  /// göstergelerine yansıtmak için.
+  void setContactSubsystemState({
+    required bool advertising,
+    required bool scanning,
+  }) {
+    state = state.copyWith(
+      contactAdvertising: advertising,
+      contactScanning: scanning,
+    );
   }
 
   /// "Tüm test verisini sil" butonu çağırır. Mevcut session save EDİLMEZ
@@ -767,18 +811,30 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // service UUID yayınlarını yakalar (mevcut ranging zaten iBeacon yakalar).
       final contactEnabled = await SettingsPrefs().isContactEnabled();
       if (contactEnabled) {
-        ref.read(contactAdvertiserProvider).start(reporterDeviceId).ignore();
-        ref.read(contactBleScannerProvider).start(
-          selfDeviceIdHash: reporterDeviceId,
-          onEncounter: (anonId, rssi, now) {
-            // Aynı `ContactController.onEncounterEvent` akışı — encounter
-            // map'i tek noktadan beslenir, eşik kontrolü değişmez.
-            ref
-                .read(contactControllerProvider.notifier)
-                .onEncounterEvent(anonId, rssi, now);
-            _lastBeaconActivity = now;
-          },
-        ).ignore();
+        // Sonuçları state'e yansıt → UI "Temas Yayını / Taraması" göstergeleri.
+        // unawaited bırakmak yerine await: kullanıcı sahada gerçekten çalışıyor
+        // mu görsün, silent fail olmasın.
+        final advOk = await ref
+            .read(contactAdvertiserProvider)
+            .start(reporterDeviceId);
+        final scanOk = await ref.read(contactBleScannerProvider).start(
+              selfDeviceIdHash: reporterDeviceId,
+              onEncounter: (anonId, rssi, now) {
+                ref
+                    .read(contactControllerProvider.notifier)
+                    .onEncounterEvent(anonId, rssi, now);
+                _lastBeaconActivity = now;
+              },
+            );
+        state = state.copyWith(
+          contactAdvertising: advOk,
+          contactScanning: scanOk,
+        );
+      } else {
+        state = state.copyWith(
+          contactAdvertising: false,
+          contactScanning: false,
+        );
       }
     } catch (e, st) {
       _log('initSdk ERROR: $e\n$st');
@@ -1469,6 +1525,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       initialized: false,
       monitoring: false,
       ranging: false,
+      contactAdvertising: false,
+      contactScanning: false,
       beacons: const [],
       top3: const [],
       detectedLocation: null,

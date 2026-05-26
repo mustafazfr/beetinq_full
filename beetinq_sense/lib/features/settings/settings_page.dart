@@ -116,8 +116,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       // Android = iBeacon advertise, iOS = service UUID + local name (Task 2.18).
       try {
         final deviceId = await DeviceIdService().getDeviceId();
-        await advertiser.start(deviceId);
-        await scanner.start(
+        final advOk = await advertiser.start(deviceId);
+        final scanOk = await scanner.start(
           selfDeviceIdHash: deviceId,
           onEncounter: (anonId, rssi, now) {
             ref
@@ -125,6 +125,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 .onEncounterEvent(anonId, rssi, now);
           },
         );
+        // Sonuçları UI göstergelerine yansıt (Sistem Durumu kartı).
+        ref.read(beaconControllerProvider.notifier).setContactSubsystemState(
+              advertising: advOk,
+              scanning: scanOk,
+            );
       } catch (e) {
         debugPrint('contact advertiser/scanner start hatası: $e');
       }
