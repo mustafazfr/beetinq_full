@@ -216,6 +216,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   // mutable cache. Settings page toggle edince [setContactEnabledCache]
   // ile güncellenir.
   bool _contactEnabledCache = true;
+  // BUG FIX (Mobil R4 — iOS scope/KVKK): iOS'ta uygulama arka plana
+  // geçince advertiser+scanner durduruluyor ama dchs_flutter_beacon ranging
+  // (Always izniyle) arka planda contact iBeacon görmeye devam edebilir →
+  // arka planda contact event raporlanabilirdi (scope ihlali: "iOS'ta arka
+  // planda contact YOK"). Bu flag ile iOS'ta yalnızca ön planda contact
+  // event işlenir. Android'de arka plan contact SCOPE İÇİNDE → her zaman true.
+  bool _appInForeground = true;
   // Self-contact guard: cihazın kendi iBeacon yayınını ranging'de görmesi
   // halinde (bazı Android cihazlar kendi advertisement'ını tarar) kendisiyle
   // "contact" kaydı oluşturmasını engeller. initSdk'da kendi deviceId'sinden
@@ -300,6 +307,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
+      // iOS'ta arka planda contact event işlenmesin (R4). Android arka planda
+      // foreground service ile contact yapması scope içinde → flag'i sadece
+      // iOS'ta düşür.
+      if (Platform.isIOS) _appInForeground = false;
       if (state.detectedLocation != null && state.currentSessionStart != null) {
         _prefs.saveCurrentSession(
           state.detectedLocation,
@@ -321,6 +332,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
 
     if (lifecycle == AppLifecycleState.resumed) {
+      _appInForeground = true;
       // Contact tracing (Task 1.5.8): iOS'ta ön plana dönüldüğünde advertise
       // yeniden başlatılır (opt-in durumunda). Android'de zaten sürekli.
       if (Platform.isIOS) {
@@ -947,8 +959,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
             // Contact tracing UUID'si: _rows'a düşmez, ayrı akışa gider.
             // (Aggregation Task 1.5.5'te ContactController'da yapılacak.)
+            // R4: iOS'ta yalnızca ön planda işle (_appInForeground); arka
+            // planda Always izniyle gelen contact iBeacon'ları sayma → scope.
             if (uuid == contactUuidUpper) {
-              if (_contactEnabledCache) {
+              if (_contactEnabledCache && _appInForeground) {
                 _lastBeaconActivity = now;
                 _onContactBeacon(major, minor, raw, now);
               }
