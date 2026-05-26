@@ -124,3 +124,58 @@ String? decodeLocalNameToAnonId(String? localName) {
   final lo = hex.toLowerCase();
   return '${lo.substring(0, 4)}:${lo.substring(4, 8)}';
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Cross-platform contact — anonId'yi SERVICE UUID'ye gömme (asıl çözüm).
+//
+// SORUN: flutter_ble_peripheral Android'de custom `localName` YAYAMIYOR
+// (plugin Android dalında localName alanı hiç işlenmiyor; sadece iOS).
+// Android iBeacon (manufacturerData) yayıyordu ama iPhone'un dchs ranging'i
+// bunu güvenilir yakalamıyor. İki platform anonId'yi farklı alanda taşıyınca
+// cross-platform kırılıyordu.
+//
+// ÇÖZÜM: anonId'yi HER İKİ platformun da yayabildiği + flutter_blue_plus'ın
+// her iki platformda da okuyabildiği TEK ortak alana — service UUID'nin
+// kendisine — göm. Her cihaz, ortak 24-hex prefix + kendi 8-hex anonId'sini
+// içeren benzersiz bir 128-bit service UUID yayar:
+//   DBB2D4FF-40B6-4902-8948-8E8A<anonId8>   (son 8 hex = deviceId ilk 8 hex)
+// Scanner withServices ile sabit UUID'yi filtreleyemez (cihaza özel farklı);
+// bunun yerine gördüğü tüm service UUID'lerde prefix eşleşmesi arar.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Ortak prefix: kContactTracingUuid'nin ilk 24 hex'i (dash'siz). Son 8 hex
+/// her cihazda anonId ile değiştirilir.
+String get kContactServiceUuidPrefix =>
+    kContactTracingUuid.replaceAll('-', '').substring(0, 24).toLowerCase();
+
+/// 32 hex → "8-4-4-4-12" UUID formatı.
+String _formatUuid(String hex32) {
+  final h = hex32.toLowerCase();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-'
+      '${h.substring(16, 20)}-${h.substring(20)}';
+}
+
+/// deviceId hash → cihaza özel service UUID. Son 8 hex = deviceId ilk 8 hex.
+String encodeAnonIdToServiceUuid(String deviceIdHash) {
+  if (deviceIdHash.length < 8) {
+    throw FormatException(
+      'deviceIdHash en az 8 hex karakter olmalı, alınan: ${deviceIdHash.length}',
+    );
+  }
+  final anon8 = deviceIdHash.substring(0, 8).toLowerCase();
+  if (!RegExp(r'^[0-9a-f]{8}$').hasMatch(anon8)) {
+    throw FormatException('deviceIdHash hex değil: $anon8');
+  }
+  return _formatUuid(kContactServiceUuidPrefix + anon8);
+}
+
+/// Taranan service UUID'den anonId çıkar. Beetinq prefix'i taşımıyorsa null.
+/// "DBB2D4FF-40B6-4902-8948-8E8Ada9f52a4" → "da9f:52a4".
+String? decodeServiceUuidToAnonId(String? uuid) {
+  if (uuid == null) return null;
+  final hex = uuid.replaceAll('-', '').toLowerCase();
+  if (hex.length != 32) return null;
+  if (!hex.startsWith(kContactServiceUuidPrefix)) return null;
+  final anon8 = hex.substring(24);
+  return '${anon8.substring(0, 4)}:${anon8.substring(4, 8)}';
+}

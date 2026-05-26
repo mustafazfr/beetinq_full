@@ -58,8 +58,8 @@ class ContactBleScanner {
       // Self-filter için anonId'yi hesapla. Geçersiz hash'te scanner yine
       // çalışır, sadece self-filtering devre dışı kalır.
       try {
-        _selfAnonId = decodeLocalNameToAnonId(
-          encodeAnonIdToLocalName(selfDeviceIdHash),
+        _selfAnonId = decodeServiceUuidToAnonId(
+          encodeAnonIdToServiceUuid(selfDeviceIdHash),
         );
       } catch (_) {
         _selfAnonId = null;
@@ -101,12 +101,21 @@ class ContactBleScanner {
           final now = DateTime.now();
           for (final r in results) {
             final adv = r.advertisementData;
-            // 1) Beetinq local name prefix kontrolü.
-            final anonId = decodeLocalNameToAnonId(adv.advName);
+            // CROSS-PLATFORM: anonId artık service UUID'ye gömülü (hem iOS hem
+            // Android aynı yayını yapıyor). Yayınlanan service UUID'lerde
+            // Beetinq prefix'i ara → anonId çıkar. (Eski localName yolu da
+            // geriye uyum için kontrol edilir.)
+            String? anonId;
+            for (final g in adv.serviceUuids) {
+              final decoded = decodeServiceUuidToAnonId(g.str);
+              if (decoded != null) { anonId = decoded; break; }
+            }
+            // Geriye uyum: eski sürüm localName "BTQ-..." yaymışsa onu da yakala.
+            anonId ??= decodeLocalNameToAnonId(adv.advName);
             if (anonId == null) continue;
-            // 2) Self-skip — kendi yayınımızı sayma.
+            // Self-skip — kendi yayınımızı sayma.
             if (_selfAnonId != null && anonId == _selfAnonId) continue;
-            // 3) RSSI sanity (BLE -100..-1 dBm).
+            // RSSI sanity (BLE -100..-1 dBm).
             if (r.rssi >= 0 || r.rssi < -100) continue;
             onEncounter(anonId, r.rssi, now);
           }
@@ -116,15 +125,14 @@ class ContactBleScanner {
         },
       );
 
-      // Service UUID filter ile sadece Beetinq paketlerini al. iOS native
-      // filter Apple iBeacon mfg data paketlerini es geçer; sadece advertised
-      // service UUID'ler eşleşir.
+      // withServices KULLANILMIYOR: her cihaz CİHAZA ÖZEL service UUID (prefix
+      // + anonId) yayıyor; sabit UUID ile filtrelenemez. Tüm BLE cihazları
+      // taranır, callback'te prefix eşleşmesiyle Beetinq paketleri ayıklanır.
       // continuousUpdates=true: RSSI canlı güncellensin (her paket için event).
       await FlutterBluePlus.startScan(
-        withServices: [Guid(kContactTracingUuid)],
         continuousUpdates: true,
         // androidScanMode default lowLatency — pil tüketimi yüksek ama saha
-        // demosunda gerekli. tuneScanLowPower mode'da future iş için ayrı.
+        // demosunda gerekli.
       );
 
       _running = true;
