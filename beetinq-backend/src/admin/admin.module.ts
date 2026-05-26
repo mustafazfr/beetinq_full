@@ -7,9 +7,12 @@ import { Visit } from '../visits/visit.entity';
 import { Stand } from '../stands/stand.entity';
 import { Beacon } from '../beacons/beacon.entity';
 import { ContactEvent } from '../contacts/contact-event.entity';
+import { Fingerprint } from '../fingerprints/fingerprint.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Visit, Stand, Beacon, ContactEvent])],
+  imports: [
+    TypeOrmModule.forFeature([Visit, Stand, Beacon, ContactEvent, Fingerprint]),
+  ],
   controllers: [AdminController],
   providers: [AdminService],
 })
