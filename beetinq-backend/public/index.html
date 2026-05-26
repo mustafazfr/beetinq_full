@@ -462,36 +462,51 @@
     // ─────────────────────────────────────────────────────────────────────
     // DATA LOAD
     // ─────────────────────────────────────────────────────────────────────
+    // Tek endpoint hata verirse diğerleri ölmesin: allSettled + safeJson.
+    // Eski hali Promise.all idi → tek 500 tüm paneli boşaltıyordu (Bug R6).
+    async function _safeJson(p, fallback) {
+      try {
+        const r = await p;
+        if (r.status === 'fulfilled' && r.value.ok) return await r.value.json();
+      } catch (_) {}
+      return fallback;
+    }
     async function loadAll() {
       const q = dateQuery();
+      const results = await Promise.allSettled([
+        fetch(`/api/stats/dwell${q}`),                  // 0
+        fetch('/api/stands'),                            // 1
+        fetch(`/api/stats/contacts${q}`),                // 2
+        fetch(`/api/stats/contact-events${q}`),          // 3
+        fetch(`/api/stats/heatmap${q}`),                 // 4
+        fetch('/api/beacons'),                           // 5
+        fetch(`/api/stats/summary${q}`),                 // 6
+        fetch(`/api/stats/hourly${q}`),                  // 7
+        fetch(`/api/stats/sources${q}`),                 // 8
+        fetch(`/api/stats/dwell-distribution${q}`),      // 9
+        fetch('/api/stats/active?minutes=5'),            // 10
+      ]);
       try {
-        const [
-          dwellRes, standsRes, contactRes, contactEventsRes, heatmapRes, beaconsRes,
-          summaryRes, hourlyRes, sourceRes, dwellHistRes, activeRes
-        ] = await Promise.all([
-          fetch(`/api/stats/dwell${q}`),
-          fetch('/api/stands'),
-          fetch(`/api/stats/contacts${q}`),
-          fetch(`/api/stats/contact-events${q}`),
-          fetch(`/api/stats/heatmap${q}`),
-          fetch('/api/beacons'),
-          fetch(`/api/stats/summary${q}`),
-          fetch(`/api/stats/hourly${q}`),
-          fetch(`/api/stats/sources${q}`),
-          fetch(`/api/stats/dwell-distribution${q}`),
-          fetch('/api/stats/active?minutes=5'),
-        ]);
-        dwellData = await dwellRes.json();
-        stands = await standsRes.json();
-        contactStats = await contactRes.json();
-        contactEvents = await contactEventsRes.json();
-        heatmapData = await heatmapRes.json();
-        beacons = await beaconsRes.json();
-        summaryData = await summaryRes.json();
-        hourlyData = await hourlyRes.json();
-        sourceData = await sourceRes.json();
-        dwellHist = await dwellHistRes.json();
-        activeNowData = await activeRes.json();
+        // BUG FIX (drag race): sürükleme devam ederken sunucudan yeni veri
+        // gelirse SÜRÜKLENEN item'ı override etme — bırakınca "eski yerine
+        // zıplama" sorununun (Bug R1) önüne geçer. Diğer item'lar normal yenilenir.
+        const fresh = (arr, fallback) => Array.isArray(arr) ? arr : fallback;
+        const newStands  = fresh(await _safeJson(results[1], null), stands);
+        const newBeacons = fresh(await _safeJson(results[5], null), beacons);
+        const dragId = dragging?.ref?.id;
+        const dragKind = dragging?.kind;
+        stands  = dragKind === 'stand'  ? newStands.map(s => s.id === dragId ? dragging.ref : s)  : newStands;
+        beacons = dragKind === 'beacon' ? newBeacons.map(b => b.id === dragId ? dragging.ref : b) : newBeacons;
+
+        dwellData     = fresh(await _safeJson(results[0], null), dwellData);
+        contactStats  = await _safeJson(results[2], contactStats);
+        contactEvents = fresh(await _safeJson(results[3], null), contactEvents);
+        heatmapData   = await _safeJson(results[4], heatmapData);
+        summaryData   = await _safeJson(results[6], summaryData);
+        hourlyData    = fresh(await _safeJson(results[7], null), hourlyData);
+        sourceData    = await _safeJson(results[8], sourceData);
+        dwellHist     = fresh(await _safeJson(results[9], null), dwellHist);
+        activeNowData = await _safeJson(results[10], activeNowData);
 
         renderStats();
         renderDwellList();
@@ -800,7 +815,7 @@
       el.innerHTML = beacons.map(b => `
         <div class="stand-list-item">
           <span style="font-family:monospace;font-size:11px">
-            <span class="beacon-dot"></span>${b.name ? `<b>${b.name}</b> · ` : ''}${b.major}/${b.minor} @ (${b.x.toFixed(1)},${b.y.toFixed(1)})
+            <span class="beacon-dot"></span>${b.name ? `<b>${b.name}</b> · ` : ''}${b.major}/${b.minor} @ (${typeof b.x === 'number' ? b.x.toFixed(1) : '?'},${typeof b.y === 'number' ? b.y.toFixed(1) : '?'})
             ${b.stand ? ` · <span style="color:#22c55e">${b.stand.name}</span>` : ''}
           </span>
           <button class="btn btn-red" style="padding:4px 10px;font-size:11px" onclick="deleteBeacon('${b.id}')">Sil</button>
@@ -921,23 +936,41 @@
       await loadAll();
     }
 
+    // BUG FIX (Bug R4 — phantom drag): PATCH 404 verirse item başka sekmede
+    // silinmiş/wipe edilmiş demektir. Lokal listeden de düşür ki ghost item
+    // haritada kalmasın. Diğer hata: sessizce yutmak yerine console.warn.
     async function patchBeaconCoords(id, x, y) {
-      await fetch(`/api/beacons/${encodeURIComponent(id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y }),
-      });
-      beacons = beacons.map(b => b.id === id ? { ...b, x, y } : b);
+      try {
+        const res = await fetch(`/api/beacons/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x, y }),
+        });
+        if (res.status === 404) {
+          beacons = beacons.filter(b => b.id !== id);
+          return;
+        }
+        if (!res.ok) { console.warn('patchBeaconCoords', res.status); return; }
+        beacons = beacons.map(b => b.id === id ? { ...b, x, y } : b);
+      } catch (e) { console.warn('patchBeaconCoords network', e); }
     }
 
     async function updateStand(id, x, y) {
-      await fetch(`/api/stands/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y }),
-      });
-      stands = stands.map(s => s.id === id ? { ...s, x, y } : s);
-      draw();
+      try {
+        const res = await fetch(`/api/stands/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ x, y }),
+        });
+        if (res.status === 404) {
+          stands = stands.filter(s => s.id !== id);
+          draw();
+          return;
+        }
+        if (!res.ok) { console.warn('updateStand', res.status); return; }
+        stands = stands.map(s => s.id === id ? { ...s, x, y } : s);
+        draw();
+      } catch (e) { console.warn('updateStand network', e); }
     }
 
     async function deleteStand(id) {
@@ -979,29 +1012,36 @@
       Promise.all(tasks).then(() => draw()).catch(e => alert('Grid yerleştirme hatası: ' + e.message));
     }
 
+    // BUG FIX (Bug R2 — hit-test sırası): Eskiden beacon her zaman önce
+    // deneniyordu, beacon+stand aynı koordinata düşerse stand'a hiç ulaşılamı-
+    // yordu. Yeni: tüm hit-test adaylarını tek listede topla, mesafeye göre
+    // en yakın olanı seç. Eşitlikte stand'a öncelik ver (admin'in genelde
+    // sürüklediği obje stand; beacon'lar zaten konumda).
     canvas.addEventListener('mousedown', (e) => {
       const rect = canvas.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
+      const candidates = [];
       for (const b of beacons) {
+        if (typeof b.x !== 'number' || typeof b.y !== 'number') continue;
         const { px: bx, py: by } = toCanvas(b.x, b.y);
-        if (Math.hypot(px - bx, py - by) < 14) {
-          _frozenRoom = computeRoom();
-          dragging = { kind: 'beacon', ref: { ...b } };
-          canvas.style.cursor = 'grabbing';
-          return;
-        }
+        const d = Math.hypot(px - bx, py - by);
+        if (d < 14) candidates.push({ kind: 'beacon', ref: { ...b }, d });
       }
       for (const s of stands) {
         if (s.x < 0 || s.y < 0) continue; // yerleştirilmemiş stand haritada yok
         const { px: sx, py: sy } = toCanvas(s.x, s.y);
-        if (Math.hypot(px - sx, py - sy) < 16) {
-          _frozenRoom = computeRoom();
-          dragging = { kind: 'stand', ref: { ...s } };
-          canvas.style.cursor = 'grabbing';
-          return;
-        }
+        const d = Math.hypot(px - sx, py - sy);
+        // Stand öncelikli: hit varsa d'ye küçük epsilon ekleyerek sıralamada
+        // eşit/yakın mesafelerde stand kazansın.
+        if (d < 16) candidates.push({ kind: 'stand', ref: { ...s }, d: d - 0.001 });
       }
+      if (candidates.length === 0) return;
+      candidates.sort((a, b) => a.d - b.d);
+      const pick = candidates[0];
+      _frozenRoom = computeRoom();
+      dragging = { kind: pick.kind, ref: pick.ref };
+      canvas.style.cursor = 'grabbing';
     });
 
     canvas.addEventListener('mousemove', (e) => {
@@ -1069,6 +1109,10 @@
           points.push([px, py, p.count || 1]);
         }
         if (points.length > 0) {
+          // BUG FIX (Bug R10): simpleheat offscreen canvas'ı kendi clear etmez;
+          // her çağrıda eski frame üstüne çizer → drag sırasında yoğunluk "leke"
+          // gibi birikir. Manuel clearRect ile her draw'dan önce sıfırla.
+          heatOffscreen.getContext('2d').clearRect(0, 0, heatOffscreen.width, heatOffscreen.height);
           const maxVal = points.reduce((m, pt) => Math.max(m, pt[2]), 1);
           heat.data(points).max(maxVal);
           heat.draw(0.05);
