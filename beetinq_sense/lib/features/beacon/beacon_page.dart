@@ -170,8 +170,13 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                             ),
                             _StatusRow(
                               label: 'İzin',
+                              // BUG FIX: Android izni verince AuthorizationStatus.allowed
+                              // döndürür (iOS'taki always/whenInUse karşılığı). Eskiden
+                              // sadece always/whenInUse yeşil sayılıyordu → Android'de
+                              // izin verilse de "ALLOWED" yazıp kırmızı kalıyordu.
                               ok: state.authorizationStatus == AuthorizationStatus.always ||
-                                  state.authorizationStatus == AuthorizationStatus.whenInUse,
+                                  state.authorizationStatus == AuthorizationStatus.whenInUse ||
+                                  state.authorizationStatus == AuthorizationStatus.allowed,
                               value: state.authorizationStatus?.toString().replaceAll('AuthorizationStatus.', ''),
                             ),
                             // iOS arka plan ranging için Always zorunlu.
@@ -189,7 +194,12 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                                       fontSize: 11, color: Colors.orange),
                                 ),
                               ),
-                            _StatusRow(label: 'Monitoring', ok: state.monitoring),
+                            // Monitoring yalnızca iOS'ta kullanılıyor (region
+                            // monitoring). Android sadece sürekli ranging yapar,
+                            // bu yüzden state.monitoring hep false kalır →
+                            // satırı Android'de gösterme (yanıltıcı kırmızı ❌).
+                            if (Platform.isIOS)
+                              _StatusRow(label: 'Monitoring', ok: state.monitoring),
                             _StatusRow(label: 'Ranging', ok: state.ranging),
                           ],
                         ),
