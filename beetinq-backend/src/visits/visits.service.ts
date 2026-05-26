@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import * as crypto from 'crypto';
 
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { Visit } from './visit.entity';
@@ -43,25 +44,45 @@ export class VisitsService {
       );
     }
 
-    // Idempotency: clientEventId verildiyse duplicate kontrolü
-    if (dto.clientEventId) {
-      const existing = await this.visitsRepository.findOne({
-        where: {
-          deviceId: dto.deviceId,
-          clientEventId: dto.clientEventId,
-        },
-      });
-      if (existing) {
-        this.logger.debug(
-          `Duplicate visit eventId=${dto.clientEventId}, döndürülen id=${existing.id}`,
-        );
-        return { success: true, id: existing.id, duplicate: true };
-      }
+    // BUG FIX (Backend R11): Eski mobil sürümleri clientEventId göndermiyordu;
+    // idempotency guard `if (dto.clientEventId)` ile atlanıyor → offline retry
+    // sırasında aynı visit N kez kayda geçiyor ("aynı yerde sürekli veri"
+    // şikâyetinin server tarafı). clientEventId yoksa server-side deterministik
+    // hash üret (deviceId + locationName + enter/exit ISO) → aynı içerik tekrar
+    // gelirse aynı eventId → unique index duplicate yakalar. DTO'daki @IsUUID
+    // validasyonu bypass edilmez (sadece istemci yollamadığında server türetir).
+    const effectiveEventId =
+      dto.clientEventId ??
+      crypto
+        .createHash('sha256')
+        .update(
+          [
+            dto.deviceId,
+            dto.locationName,
+            enteredAt.toISOString(),
+            exitedAt.toISOString(),
+          ].join('|'),
+        )
+        .digest('hex')
+        .slice(0, 32);
+
+    // Idempotency: effectiveEventId her zaman var → duplicate kontrolü her isteğe uygulanır
+    const existing = await this.visitsRepository.findOne({
+      where: {
+        deviceId: dto.deviceId,
+        clientEventId: effectiveEventId,
+      },
+    });
+    if (existing) {
+      this.logger.debug(
+        `Duplicate visit eventId=${effectiveEventId}, döndürülen id=${existing.id}`,
+      );
+      return { success: true, id: existing.id, duplicate: true };
     }
 
     const visit = this.visitsRepository.create({
       deviceId: dto.deviceId,
-      clientEventId: dto.clientEventId ?? null,
+      clientEventId: effectiveEventId,
       locationName: dto.locationName,
       enteredAt,
       exitedAt,
@@ -81,16 +102,16 @@ export class VisitsService {
         const msg = (e as QueryFailedError).message.toLowerCase();
         if (msg.includes('unique') || msg.includes('constraint')) {
           this.logger.debug(
-            `Unique violation race: eventId=${dto.clientEventId}, duplicate kabul ediliyor`,
+            `Unique violation race: eventId=${effectiveEventId}, duplicate kabul ediliyor`,
           );
-          const existing = await this.visitsRepository.findOne({
+          const raced = await this.visitsRepository.findOne({
             where: {
               deviceId: dto.deviceId,
-              clientEventId: dto.clientEventId ?? undefined,
+              clientEventId: effectiveEventId,
             },
           });
-          if (existing) {
-            return { success: true, id: existing.id, duplicate: true };
+          if (raced) {
+            return { success: true, id: raced.id, duplicate: true };
           }
         }
       }

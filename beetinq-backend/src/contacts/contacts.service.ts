@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
+import * as crypto from 'crypto';
 
 import { CreateContactEventDto } from './dto/create-contact-event.dto';
 import { ContactEvent } from './contact-event.entity';
@@ -37,44 +38,61 @@ export class ContactsService {
       );
     }
 
-    if (dto.clientEventId) {
-      const existing = await this.contactsRepository.findOne({
-        where: {
-          deviceId: dto.deviceId,
-          clientEventId: dto.clientEventId,
-        },
-      });
-      if (existing) {
-        // Upsert: uzun temaslarda mobil aynı clientEventId ile güncel (daha
-        // uzun) süreyle tekrar gönderir. firstSeenAt sabit kalır; süre/son
-        // görülme/rssi/örnek sayısı güncellenir. Böylece "ortalama temas
-        // süresi" gerçek süreyi yansıtır, eski donmuş ~60sn değil.
-        existing.lastSeenAt = lastSeenAt;
-        existing.durationSeconds = computed;
-        existing.avgRssi = dto.avgRssi;
-        existing.sampleCount = dto.sampleCount;
-        if (dto.locationName !== undefined) {
-          existing.locationName = dto.locationName;
-        }
-        await this.contactsRepository.save(existing);
-        this.logger.debug(
-          `Contact güncellendi (re-report) eventId=${dto.clientEventId}, ` +
-            `id=${existing.id}, yeni süre=${computed}s`,
-        );
-        // Süre güncellendi → panel yenilensin.
-        this.events.emitDataChanged('contact');
-        return {
-          success: true,
-          id: existing.id,
-          duplicate: true,
-          updated: true,
-        };
+    // BUG FIX (Backend R11): clientEventId yoksa server-side deterministik
+    // hash üret → eski mobil veya geri retry'larda aynı contact'ın N kez
+    // duplicate olarak yazılmasını engeller. (deviceId + seenAnonId + first
+    // ISO) hash'i; aynı encounter tekrar gelirse aynı id → unique index
+    // yakalar veya upsert dalı tetiklenir.
+    const effectiveEventId =
+      dto.clientEventId ??
+      crypto
+        .createHash('sha256')
+        .update(
+          [
+            dto.deviceId,
+            dto.seenAnonId,
+            firstSeenAt.toISOString(),
+          ].join('|'),
+        )
+        .digest('hex')
+        .slice(0, 32);
+
+    const existing = await this.contactsRepository.findOne({
+      where: {
+        deviceId: dto.deviceId,
+        clientEventId: effectiveEventId,
+      },
+    });
+    if (existing) {
+      // Upsert: uzun temaslarda mobil aynı clientEventId ile güncel (daha
+      // uzun) süreyle tekrar gönderir. firstSeenAt sabit kalır; süre/son
+      // görülme/rssi/örnek sayısı güncellenir. Böylece "ortalama temas
+      // süresi" gerçek süreyi yansıtır, eski donmuş ~60sn değil.
+      existing.lastSeenAt = lastSeenAt;
+      existing.durationSeconds = computed;
+      existing.avgRssi = dto.avgRssi;
+      existing.sampleCount = dto.sampleCount;
+      if (dto.locationName !== undefined) {
+        existing.locationName = dto.locationName;
       }
+      await this.contactsRepository.save(existing);
+      this.logger.debug(
+        `Contact güncellendi (re-report) eventId=${effectiveEventId}, ` +
+          `id=${existing.id}, yeni süre=${computed}s`,
+      );
+      // Süre güncellendi → panel yenilensin.
+      this.events.emitDataChanged('contact');
+      return {
+        success: true,
+        id: existing.id,
+        duplicate: true,
+        updated: true,
+      };
     }
 
     const entity = this.contactsRepository.create({
       deviceId: dto.deviceId,
-      clientEventId: dto.clientEventId ?? null,
+      clientEventId: effectiveEventId,
       seenAnonId: dto.seenAnonId,
       firstSeenAt,
       lastSeenAt,
@@ -91,16 +109,16 @@ export class ContactsService {
         const msg = (e as QueryFailedError).message.toLowerCase();
         if (msg.includes('unique') || msg.includes('constraint')) {
           this.logger.debug(
-            `Unique violation race: eventId=${dto.clientEventId}, duplicate kabul ediliyor`,
+            `Unique violation race: eventId=${effectiveEventId}, duplicate kabul ediliyor`,
           );
-          const existing = await this.contactsRepository.findOne({
+          const raced = await this.contactsRepository.findOne({
             where: {
               deviceId: dto.deviceId,
-              clientEventId: dto.clientEventId ?? undefined,
+              clientEventId: effectiveEventId,
             },
           });
-          if (existing) {
-            return { success: true, id: existing.id, duplicate: true };
+          if (raced) {
+            return { success: true, id: raced.id, duplicate: true };
           }
         }
       }
