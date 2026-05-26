@@ -28,3 +28,6 @@ beetinq_sense/.flutter-plugins-dependencies
 beetinq_sense/build/
 beetinq_sense/.pub-cache/
 beetinq_sense/.packages
+
+# Proje rehberi ve görev listesi — GitHub'da tutulmuyor (yerelde var)
+TASKS.md
