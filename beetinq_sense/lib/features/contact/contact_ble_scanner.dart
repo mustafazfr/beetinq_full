@@ -74,6 +74,26 @@ class ContactBleScanner {
         return false;
       }
 
+      // BUG FIX (iOS startup race): CoreBluetooth adaptörü uygulama açılışında
+      // `.unknown` durumunda başlar; `poweredOn`'a geçmesi birkaç yüz ms sürer.
+      // startScan'i adaptör hazır olmadan çağırırsak iOS
+      // "CBManagerStateUnknown" PlatformException fırlatır ve scanner hiç
+      // başlamaz. Bu yüzden adaptörün açık duruma geçmesini bekle. 5sn içinde
+      // açılmazsa (BT gerçekten kapalı) scanner'ı atla — UI ayrıca Bluetooth
+      // banner'ı gösteriyor, advertiser tarafı kendi içinde kuyruğa alıyor.
+      if (FlutterBluePlus.adapterStateNow != BluetoothAdapterState.on) {
+        try {
+          await FlutterBluePlus.adapterState
+              .firstWhere((s) => s == BluetoothAdapterState.on)
+              .timeout(const Duration(seconds: 5));
+        } on TimeoutException {
+          debugPrint(
+              '$_logTag BLE adaptörü 5sn içinde açılmadı (state='
+              '${FlutterBluePlus.adapterStateNow}), scanner atlandı.');
+          return false;
+        }
+      }
+
       // Stream listen önce, scan sonra: ilk paketleri kaçırmamak için sıralama.
       _sub = FlutterBluePlus.onScanResults.listen(
         (results) {
