@@ -63,4 +63,13 @@ export class CreateContactEventDto {
   @Min(1)
   @Max(100000)
   sampleCount: number;
+
+  /**
+   * Temas anındaki stand/konum adı (opsiyonel). Mobil, temas tetiklendiğinde
+   * o anki detectedLocation'ı gönderir; konum bilinmiyorsa hiç gönderilmez.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  locationName?: string;
 }

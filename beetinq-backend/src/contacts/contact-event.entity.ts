@@ -51,6 +51,15 @@ export class ContactEvent {
   @Column()
   sampleCount: number;
 
+  /**
+   * Temasın gerçekleştiği sıradaki konum/stand (raporlayan cihazın o anki
+   * detectedLocation'ı). Nullable: konum bilinmiyorsa (beacon görünmüyorsa)
+   * null kalır. "Hangi standda kaç temas oldu" (networking hotspot) analizi
+   * için kullanılır.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  locationName: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }
