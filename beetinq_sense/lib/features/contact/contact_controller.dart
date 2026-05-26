@@ -48,6 +48,11 @@ class ContactController extends Notifier<ContactState> {
   final Map<String, ContactEncounter> _encounters = {};
   static const _uuid = Uuid();
 
+  /// Raporlayan telefonun o anki stand'ı. BeaconController konum değişince
+  /// [onLocationChanged] ile günceller. Yeni encounter'lar bu konumla doğar;
+  /// per-stand temas için kullanılır.
+  String? _currentLocationName;
+
   /// Eşik aşıldığında çağrılır (Task 1.5.7 — ApiService.sendContactEvent).
   /// Set edilmediyse no-op; encounter yine reportedAsContact=true olarak
   /// işaretlenir (duplicate tetikleme olmasın).
@@ -63,6 +68,34 @@ class ContactController extends Notifier<ContactState> {
     _triggerContact = cb;
   }
 
+  /// Per-stand temas: raporlayan telefon başka standa geçtiğinde BeaconController
+  /// bunu çağırır. Halihazırda temas olarak RAPORLANMIŞ encounter'lar yeni
+  /// stand için "rotate" edilir → yeni clientEventId + firstSeen=now ile YENİ
+  /// bir temas başlar (backend yeni clientEventId'yi yeni kayıt sayar). Henüz
+  /// temas olmamış encounter'ların sadece konumu güncellenir.
+  void onLocationChanged(String? newLocation) {
+    if (newLocation == _currentLocationName) return;
+    _currentLocationName = newLocation;
+    final now = DateTime.now();
+    for (final anonId in _encounters.keys.toList()) {
+      final e = _encounters[anonId]!;
+      if (e.reportedAsContact && e.locationName != newLocation) {
+        // Yeni standda yeni temas başlat (son sample'ı taşı ki hızlı toparlasın).
+        _encounters[anonId] = ContactEncounter(
+          seenAnonId: anonId,
+          firstSeen: now,
+          lastSeen: now,
+          clientEventId: _uuid.v4(),
+          samples: e.samples.isNotEmpty ? [e.samples.last] : [],
+          locationName: newLocation,
+        );
+      } else {
+        // Henüz temas olmadı → sadece konumu güncelle.
+        e.locationName = newLocation;
+      }
+    }
+  }
+
   /// BeaconController ranging callback'inden çağrılır.
   void onEncounterEvent(String anonId, int rssi, DateTime now) {
     final sample = RssiSample(rssi, now);
@@ -74,6 +107,7 @@ class ContactController extends Notifier<ContactState> {
         lastSeen: now,
         clientEventId: _uuid.v4(),
         samples: [sample],
+        locationName: _currentLocationName,
       );
     } else {
       existing.lastSeen = now;

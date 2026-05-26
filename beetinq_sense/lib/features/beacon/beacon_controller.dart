@@ -737,9 +737,9 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             sampleCount: encounter.sampleCount,
             // Re-report'larda sabit anahtar → backend upsert ile tek kayıt güncellenir.
             clientEventId: encounter.clientEventId,
-            // Temas anındaki stand/konum — "hangi standda temas" analizi için.
-            // Konum henüz tespit edilmediyse null gider (backend nullable).
-            locationName: state.detectedLocation,
+            // Per-stand: encounter'ın izlendiği stand (rotate'da güncellenir).
+            // Encounter konumu yoksa o anki konuma düş (geriye uyum).
+            locationName: encounter.locationName ?? state.detectedLocation,
           ).ignore();
         },
       );
@@ -1160,6 +1160,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
           // Konum değişti mi?
           if (state.detectedLocation != bestMatchName) {
+            // Per-stand temas: yeni standda aktif encounter'lar yeni temas
+            // açsın (kullanıcı tercihi). bestMatchName null ise konum kaybı,
+            // onLocationChanged null geçer → encounter'lar konumsuz kalır.
+            ref
+                .read(contactControllerProvider.notifier)
+                .onLocationChanged(bestMatchName);
+
             final exitTime = top3.isNotEmpty
                 ? top3.first.lastSeen
                 : (_lastValidBeaconTime ?? DateTime.now());

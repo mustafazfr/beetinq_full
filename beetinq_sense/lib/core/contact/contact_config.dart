@@ -21,7 +21,11 @@ const int kContactRssiThreshold = -80;
 const int kContactDurationSeconds = 60;
 
 /// Eviction eşiği: bu süredir görülmeyen encounter RAM'den silinir.
-const int kContactEvictionSeconds = 300; // 5 dk
+/// Bu süre kadar uzak kalınca "temas koptu" sayılır; tekrar yaklaşınca YENİ
+/// temas başlar. Demo/test kolaylığı için 90sn'ye çekildi (eskiden 5 dk idi;
+/// "5 dakika uzak kalmak" test için çok uzundu). Gerçek bir temasın kısa BLE
+/// kesintisinde bölünmemesi için 90sn yeterli pay bırakıyor.
+const int kContactEvictionSeconds = 90;
 
 /// Contact eşiği aşıldıktan sonra, encounter hâlâ aktifse her bu kadar
 /// saniyede bir güncel (daha uzun) süreyle tekrar raporlanır. Aynı
