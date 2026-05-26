@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository } from 'typeorm';
+import { QueryFailedError, Repository, IsNull } from 'typeorm';
 import * as crypto from 'crypto';
 
 import { CreateContactEventDto } from './dto/create-contact-event.dto';
@@ -110,6 +110,44 @@ export class ContactsService {
         duplicate: true,
         updated: true,
       };
+    }
+
+    // ── TEMPORAL MERGE (session stitching) ──────────────────────────────────
+    // Mobil tarafta BLE flicker / encounter eviction yüzünden aynı temas birden
+    // çok parçaya bölünebiliyor (her ~20sn'de yeni clientEventId → yeni kayıt).
+    // Sunucu bunları birleştirir: aynı (raporlayan, görülen) çifti için son kayıt,
+    // yeni kaydın başlangıcından en fazla MERGE penceresi kadar önce bittiyse VE
+    // aynı stand'daysa → ayrı kayıt açma, mevcut kaydı UZAT. Böylece dashboard'da
+    // "20sn'lik parçalar" yerine tek sürekli temas görünür. Farklı stand veya
+    // pencere dışı → gerçekten yeni temas (per-stand contact korunur).
+    const mergeWindowMs = 60 * 1000;
+    const recent = await this.contactsRepository.findOne({
+      where: {
+        deviceId: dto.deviceId,
+        seenAnonId: dto.seenAnonId,
+        locationName: dto.locationName ?? IsNull(),
+      },
+      order: { lastSeenAt: 'DESC' },
+    });
+    if (recent) {
+      const gapMs = firstSeenAt.getTime() - recent.lastSeenAt.getTime();
+      // gap negatif (örtüşme) veya pencere içinde → aynı temasın devamı.
+      if (gapMs <= mergeWindowMs) {
+        // Bitişi ileri taşı (yeni daha geçse). Süre = bitiş - ilk görülme.
+        if (lastSeenAt > recent.lastSeenAt) recent.lastSeenAt = lastSeenAt;
+        recent.durationSeconds = Math.round(
+          (recent.lastSeenAt.getTime() - recent.firstSeenAt.getTime()) / 1000,
+        );
+        recent.avgRssi = dto.avgRssi;
+        recent.sampleCount += dto.sampleCount;
+        await this.contactsRepository.save(recent);
+        this.logger.debug(
+          `Contact birleştirildi (temporal merge) id=${recent.id}, ` +
+            `gap=${Math.round(gapMs / 1000)}s, yeni süre=${recent.durationSeconds}s`,
+        );
+        this.events.emitDataChanged('contact');
+        return { success: true, id: recent.id, merged: true };
+      }
     }
 
     const entity = this.contactsRepository.create({
