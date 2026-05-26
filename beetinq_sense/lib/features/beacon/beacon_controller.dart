@@ -194,6 +194,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   StreamSubscription<RangingResult>? _rangingSub;
   StreamSubscription<MonitoringResult>? _monitoringSub;
   StreamSubscription<BluetoothState>? _btStateSub;
+  // İzin değişimi stream'i — iOS'ta CLLocationManager iznini async callback
+  // ile bildirir; plugin'in requestAuthorization Future'ı dialog tam kapanmadan
+  // dönüyor → ilk açılışta getAuthorizationStatus() eski (notDetermined) değeri
+  // okuyor, tikler boş kalıyor. Bu stream izin değişince state'i tazeler ve
+  // gerekirse initSdk'yı yeniden tetikler → uygulama yeniden başlatmaya gerek yok.
+  StreamSubscription<AuthorizationStatus>? _authSub;
 
   // Aggregation storage
   final Map<String, BeaconRow> _rows = {};
@@ -210,6 +216,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   // mutable cache. Settings page toggle edince [setContactEnabledCache]
   // ile güncellenir.
   bool _contactEnabledCache = true;
+  // Self-contact guard: cihazın kendi iBeacon yayınını ranging'de görmesi
+  // halinde (bazı Android cihazlar kendi advertisement'ını tarar) kendisiyle
+  // "contact" kaydı oluşturmasını engeller. initSdk'da kendi deviceId'sinden
+  // hesaplanır. flutter_blue_plus scanner'da zaten self-skip var; bu, iBeacon
+  // ranging tarafının karşılığı.
+  String? _selfContactAnonId;
   // BUG FIX: Watchdog reentrancy guard. Watchdog restart sırasında
   // tekrar tetiklenirse iki paralel startDeviceRanging çalışmaz.
   bool _isRestartingRanging = false;
@@ -217,6 +229,9 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   Timer? _statusPollTimer;
   Timer? _rangingWatchdogTimer;
   Timer? _scanPowerTimer;
+  // Periyodik fingerprint/beacon senkronu: ikinci telefon, birinci telefon
+  // yeni stand kaydederken restart olmadan güncellensin (30 sn'de bir).
+  Timer? _syncTimer;
 
   // Task 3.3: adaptif scan period. 10 dk aktivite yoksa düşük güç moduna
   // geç. [_lastBeaconActivity] target veya contact beacon görüldüğünde
@@ -228,8 +243,25 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   DateTime? _lastValidBeaconTime;
 
   // HYSTERESIS: Sinyal kopmalarında "ping-pong" etkisini önler.
+  // _locationLossCount: beacon GÖRÜNÜYOR ama eşleşme yok (gerçek taşınma)
+  // durumundaki kısa event toleransı. Sinyal tamamen kesilince (beacon yok)
+  // bunun yerine süre bazlı _locationGracePeriod kullanılır (aşağıda).
   int _locationLossCount = 0;
   static const int _locationLossThreshold = 5;
+
+  // Sinyal kesintisi (hiç aktif beacon görünmüyor) durumunda konumu SÜRE bazlı
+  // koru: son geçerli beacon'dan bu kadar süre geçmedikçe oturum kapanmaz.
+  // Event sayısı (~1.5sn) yerine süre kullanmak, "aynı yerde dururken BLE
+  // sinyali titreyince sahte yeni ziyaret üretme" ping-pong'unu önler.
+  // Watchdog restart'ından (15sn) uzun seçildi ki restart oturumu öldürmesin.
+  static const Duration _locationGracePeriod = Duration(seconds: 30);
+
+  // Wipe reconciliation guard (Görev 1): kullanıcı yeni bir konum kaydedince
+  // (saveCurrentFingerprint) bu zaman damgası güncellenir. Backend henüz push'u
+  // almadan periyodik sync "backend boş" görüp yeni kaydı silmesin diye, bu
+  // pencere içindeyken reconcile atlanır. Sadece RAM'de; restart'ta sıfırlanır.
+  DateTime? _lastLocalFingerprintSaveAt;
+  static const Duration _wipeReconcileGrace = Duration(minutes: 2);
 
   // --- Position Engines ---
   final FingerprintEngine fingerprintEngine = FingerprintEngine();
@@ -250,12 +282,16 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       _statusPollTimer = null;
       _rangingWatchdogTimer?.cancel();
       _rangingWatchdogTimer = null;
+      _syncTimer?.cancel();
+      _syncTimer = null;
       _rangingSub?.cancel();
       _rangingSub = null;
       _monitoringSub?.cancel();
       _monitoringSub = null;
       _btStateSub?.cancel();
       _btStateSub = null;
+      _authSub?.cancel();
+      _authSub = null;
     });
     return BeaconState.initial();
   }
@@ -347,8 +383,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _rangingWatchdogTimer = null;
     _scanPowerTimer?.cancel();
     _scanPowerTimer = null;
+    _syncTimer?.cancel();
+    _syncTimer = null;
     _btStateSub?.cancel();
     _btStateSub = null;
+    _authSub?.cancel();
+    _authSub = null;
 
     await _rangingSub?.cancel();
     _rangingSub = null;
@@ -368,6 +408,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _locationLossCount = 0;
     _initInProgress = false;
     _isRestartingRanging = false;
+    _selfContactAnonId = null;
 
     await _prefs.wipeAllData();
 
@@ -386,6 +427,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   /// API tetiklemesi 1.5.7'deki hook üzerinden yapılır.
   void _onContactBeacon(int major, int minor, int rssi, DateTime now) {
     final anonId = decodeAnonId(major, minor);
+    // Self-contact guard: kendi yayınımızı gördüysek sayma.
+    if (_selfContactAnonId != null && anonId == _selfContactAnonId) return;
     ref
         .read(contactControllerProvider.notifier)
         .onEncounterEvent(anonId, rssi, now);
@@ -468,6 +511,31 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         }
       });
 
+      // İzin değişimi stream'i: iOS'ta requestAuthorization Future'ı dialog
+      // tam kapanmadan döndüğü için ilk açılışta auth=notDetermined kalabiliyor
+      // (tikler boş). Plugin gerçek izni `locationManagerDidChangeAuthorization`
+      // ile sonra bildirir → bu listener state'i tazeler ve gerekirse initSdk'yı
+      // yeniden tetikler. _initInProgress guard'ı reentrancy'yi engeller.
+      // Bluetooth listener'ı ile aynı pattern.
+      await _authSub?.cancel();
+      _authSub = _service.authorizationStatusChanged().listen((newAuth) {
+        if (newAuth == state.authorizationStatus) return;
+        state = state.copyWith(authorizationStatus: newAuth);
+        final granted = newAuth == AuthorizationStatus.always ||
+            newAuth == AuthorizationStatus.whenInUse;
+        if (granted &&
+            state.errorType == 'permission_denied') {
+          // Önceki turda izin reddedildi diye hata kartı vardı → temizle.
+          state = state.copyWith(error: null, errorType: null);
+        }
+        // Yeni izin verildiyse ve SDK hâlâ initialize değilse / tarama
+        // başlamamışsa initSdk'yı yeniden çalıştır → tikler dolar.
+        if (granted && (!state.initialized || !state.ranging)) {
+          _log('🔓 İzin verildi (auth=$newAuth) — initSdk yeniden tetikleniyor');
+          initSdk();
+        }
+      });
+
       if (bt == BluetoothState.stateOff) {
         state = state.copyWith(
           initialized: true,
@@ -482,6 +550,14 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       if (target != null && !_isValidUuid(target.uuid)) {
         _log('⚠️ Diskten yüklenen UUID geçersiz: "${target.uuid}", target atlanıyor.');
         target = null;
+      }
+      // UUID gömülü (kDefaultBeaconUuid): kayıtlı target yoksa varsayılanla
+      // başla ve diske yaz. Yeni cihazlarda UUID elle girilmez, tarama otomatik
+      // başlar. (Mobil UUID giriş alanı kaldırıldı.)
+      if (target == null) {
+        target = const BeaconTarget(uuid: kDefaultBeaconUuid);
+        await _prefs.saveTarget(target);
+        _log('🎯 Varsayılan beacon UUID gömülü olarak ayarlandı: $kDefaultBeaconUuid');
       }
 
       final savedFingerprints = await _prefs.loadFingerprints();
@@ -581,10 +657,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         knownFingerprints: List.unmodifiable(savedFingerprints),
       );
 
-      if (target != null) {
-        _log('Kayıtlı UUID bulundu. Taramalar otomatik başlatılıyor...');
-        await startScanning();
-      }
+      // Target her zaman dolu (kayıtlı yoksa varsayılan UUID gömülü) →
+      // tarama otomatik başlar.
+      _log('Beacon UUID hazır. Taramalar otomatik başlatılıyor...');
+      await startScanning();
 
       // Kuyrukta bekleyenleri göndermeyi dene
       _api.flushQueue().ignore();
@@ -595,8 +671,27 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // Fail ise local cache (varsa) kullanılmaya devam eder.
       syncBeaconLocationsFromBackend().ignore();
 
+      // Backend'deki fingerprint'leri (başka cihazların kaydettikleri dahil)
+      // indir + lokal engine ile birleştir. Bir cihaz mekânı haritalar, hepsi
+      // fingerprint konumlama yapabilir.
+      syncFingerprintsFromBackend().ignore();
+
+      // Periyodik senkron: ikinci telefon canlı güncellensin (30 sn).
+      _startPeriodicSync();
+
       // Contact tracing (Task 1.5.7): eşik aşıldığında API'ye gönderilsin.
       final reporterDeviceId = await _deviceId.getDeviceId();
+
+      // Self-contact guard: kendi yayınımızın anonId'sini hesapla (iBeacon
+      // ranging kendi advertisement'ını görürse atlanır).
+      try {
+        final ids = encodeDeviceId(reporterDeviceId);
+        _selfContactAnonId = decodeAnonId(ids.major, ids.minor);
+      } catch (e) {
+        _selfContactAnonId = null;
+        _log('⚠️ Self-contact anonId hesaplanamadı: $e');
+      }
+
       ref.read(contactControllerProvider.notifier).setContactTrigger(
         (encounter) {
           _api.sendContactEvent(
@@ -609,6 +704,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
               const Duration(seconds: kContactDurationSeconds),
             ).avg,
             sampleCount: encounter.sampleCount,
+            // Re-report'larda sabit anahtar → backend upsert ile tek kayıt güncellenir.
+            clientEventId: encounter.clientEventId,
+            // Temas anındaki stand/konum — "hangi standda temas" analizi için.
+            // Konum henüz tespit edilmediyse null gider (backend nullable).
+            locationName: state.detectedLocation,
           ).ignore();
         },
       );
@@ -956,18 +1056,43 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
           // --- FAZ 4: DWELL TIME (BEKLEME SÜRESİ) ---
           DateTime? newSessionStart = state.currentSessionStart;
 
-          // HYSTERESIS
+          // HYSTERESIS — "ping-pong" (aynı yerde dururken sahte yeni ziyaret) önleme.
+          // İki kayıp türü ayrılır:
+          //   1) Sinyal kesintisi (hiç aktif beacon yok): SÜRE bazlı grace ile
+          //      konumu koru. Son geçerli beacon'dan _locationGracePeriod (30sn)
+          //      geçmedikçe oturum kapanmaz → kısa BLE kesintilerinde tek uzun
+          //      ziyaret üretilir. Watchdog restart'ı (15sn) bunu öldürmez.
+          //   2) Gerçek taşınma (beacon var ama fingerprint/TL eşleşmesi yok):
+          //      kısa event toleransı (_locationLossThreshold) ile hızlı bırak.
           if (bestMatchName == null && state.detectedLocation != null) {
-            _locationLossCount++;
-            if (_locationLossCount < _locationLossThreshold) {
-              _log('⚡ Geçici sinyal kaybı ($_locationLossCount/$_locationLossThreshold), konum korunuyor: ${state.detectedLocation}');
+            final bool noActiveBeacons = top3.isEmpty;
+            final Duration gap = _lastValidBeaconTime != null
+                ? now.difference(_lastValidBeaconTime!)
+                : Duration.zero;
+
+            bool keepLocation;
+            if (noActiveBeacons) {
+              // Sinyal kesintisi → süre bazlı koru (event sayacına dokunma)
+              keepLocation = gap < _locationGracePeriod;
+              _log(keepLocation
+                  ? '⚡ Sinyal kesintisi (${gap.inSeconds}sn/${_locationGracePeriod.inSeconds}sn), konum korunuyor: ${state.detectedLocation}'
+                  : '📵 Sinyal kaybı onaylandı (${gap.inSeconds}sn beacon görünmüyor)');
+            } else {
+              // Beacon var ama eşleşme yok (taşınma) → kısa event toleransı
+              _locationLossCount++;
+              keepLocation = _locationLossCount < _locationLossThreshold;
+              _log(keepLocation
+                  ? '⚡ Geçici eşleşme kaybı ($_locationLossCount/$_locationLossThreshold), konum korunuyor: ${state.detectedLocation}'
+                  : '📵 Konum değişimi onaylandı ($_locationLossThreshold ardışık eşleşmesiz event)');
+            }
+
+            if (keepLocation) {
               bestMatchName = state.detectedLocation;
               trilaterationX ??= state.trilaterationX;
               trilaterationY ??= state.trilaterationY;
               positionSource ??= state.positionSource;
             } else {
               _locationLossCount = 0;
-              _log('📵 Sinyal kaybı onaylandı ($_locationLossThreshold ardışık event)');
             }
           } else {
             _locationLossCount = 0;
@@ -1206,10 +1331,14 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _rangingWatchdogTimer = null;
     _scanPowerTimer?.cancel();
     _scanPowerTimer = null;
+    _syncTimer?.cancel();
+    _syncTimer = null;
     _isLowPowerMode = false;
     _lastBeaconActivity = null;
     _btStateSub?.cancel();
     _btStateSub = null;
+    _authSub?.cancel();
+    _authSub = null;
     _lastRangingEvent = null;
 
     final lastSeen = _lastValidBeaconTime;
@@ -1301,6 +1430,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
     await _prefs.saveFingerprints(fingerprintEngine.knownFingerprints);
 
+    // Kasıtlı kayıt — wipe reconcile bu yeni veriyi (push backend'e ulaşana
+    // kadar) silmesin diye grace penceresini başlat.
+    _lastLocalFingerprintSaveAt = DateTime.now();
+
     _log('Fingerprint Kaydedildi: "$name" (${rssiSnapshot.length} beacon ile)');
     state = state.copyWith(knownFingerprints: List.unmodifiable(fingerprintEngine.knownFingerprints));
 
@@ -1310,12 +1443,192 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     // fingerprint zaten lokal kaydedildi, demoyu bozmaz.
     // Fire-and-forget: fingerprint UX'ini bekletmemek için unawaited.
     unawaited(_registerStandFromFingerprint(name));
+    // RSSI parmak izini de backend'e gönder → diğer cihazlar indirip kullanır
+    // (radio map paylaşımı). Stand ismi zaten registerStand ile gitti; bu ek
+    // olarak rssiMap'i taşır.
+    unawaited(_pushFingerprintToBackend(fp));
     return true;
+  }
+
+  Future<void> _pushFingerprintToBackend(Fingerprint fp) async {
+    try {
+      final ok = await _api.pushFingerprint(
+        id: fp.id,
+        name: fp.name,
+        rssiMap: fp.rssiMap,
+      );
+      _log(ok
+          ? '✅ Fingerprint backend\'e push edildi: "${fp.name}"'
+          : '⚠️ Fingerprint push başarısız: "${fp.name}" (lokal kaydedildi)');
+    } catch (e) {
+      _log('⚠️ Fingerprint push exception: $e');
+    }
+  }
+
+  /// Manuel "Senkronize Et" — beacon koordinatları + fingerprint'leri backend'den
+  /// bir kerede çeker. UI butonu çağırır; restart beklemeden günceller.
+  /// Dönüş: {fingerprints, beacons} güncel sayıları (snackbar için).
+  Future<({int fingerprints, int beacons})> syncAllFromBackend() async {
+    await syncBeaconLocationsFromBackend();
+    await syncFingerprintsFromBackend();
+    return (
+      fingerprints: state.knownFingerprints.length,
+      beacons: state.beaconLocations.length,
+    );
+  }
+
+  /// Periyodik arka plan senkronu (30 sn). İkinci telefon, birinci telefon
+  /// haritalarken otomatik güncellensin diye. initSdk başlatır.
+  /// Ayrıca uzaktan-sıfırlama epoch'unu kontrol eder (admin panelden
+  /// "Sunucu + Telefonları Sıfırla" → bu telefon kendini siler).
+  void _startPeriodicSync() {
+    _syncTimer?.cancel();
+    _syncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      syncFingerprintsFromBackend().ignore();
+      syncBeaconLocationsFromBackend().ignore();
+      _checkRemoteReset().ignore();
+    });
+  }
+
+  /// Uzaktan sıfırlama sinyali kontrolü. Admin panelden "Sunucu + Telefonları
+  /// Sıfırla" basılınca backend `deviceResetEpoch` ilerletilir. Bu telefon,
+  /// sakladığı son uygulanan epoch'tan büyük bir değer görünce yerel verisini
+  /// tamamen siler ([wipeAndReset]).
+  ///
+  /// İlk kurulumda (`getLastWipeEpoch` null) gelen epoch BASELINE olarak
+  /// kaydedilir; eski wipe'ları tetiklemez. Backend erişilemezse (-1) atlanır
+  /// → offline'da yanlışlıkla silme yok.
+  Future<void> _checkRemoteReset() async {
+    final epoch = await _api.fetchDeviceResetEpoch();
+    if (epoch < 0) return; // backend erişilemedi
+    final prefs = SettingsPrefs();
+    final lastApplied = await prefs.getLastWipeEpoch();
+    if (lastApplied == null) {
+      // Baseline: ilk görülen epoch'u uygulanmış say — kurulumdan önceki
+      // wipe'lar bu telefonu etkilemez.
+      await prefs.setLastWipeEpoch(epoch);
+      return;
+    }
+    if (epoch > lastApplied) {
+      _log('🧹 Uzaktan sıfırlama sinyali (epoch $epoch > $lastApplied) — telefon sıfırlanıyor');
+      // Önce kaydet: wipeAndReset SettingsPrefs'e dokunmasa da, fail durumunda
+      // tekrar tekrar tetiklenmesin diye epoch'u idempotent biçimde işaretle.
+      await prefs.setLastWipeEpoch(epoch);
+      await wipeAndReset();
+    }
+  }
+
+  /// Backend'deki fingerprint'leri çekip lokal engine ile birleştirir.
+  /// Merge: id'ye göre dedup, backend kaydı authoritative (en güncel).
+  /// "Bir cihaz haritalar, hepsi kullanır" akışının indirme tarafı.
+  ///
+  /// WIPE RECONCILIATION (Görev 1): Operatör admin panelden "tüm verileri sil"
+  /// yaptığında backend boşalır ama mobil hâlâ "asd" gibi eski fingerprint'leri
+  /// diskte tutar ve ranging/queue üzerinden backend'e geri basabilir. Burada
+  /// backend'e GERÇEKTEN ulaşıldı (HTTP 200) VE boş döndü VE lokalde fingerprint
+  /// VARSA, bunu "backend silindi" sinyali kabul edip lokal fingerprint'leri +
+  /// açık oturumu temizleriz. Böylece otomatik geri-yazma kesilir. Kullanıcı
+  /// kasıtlı "Konum Kaydet" yaparsa grace penceresi devreye girer (silinmez).
+  ///
+  /// Güvenlik: offline/hata `null` döner (boş liste DEĞİL) → lokal veri korunur.
+  Future<void> syncFingerprintsFromBackend({String eventId = 'default'}) async {
+    try {
+      final raw = await _api.fetchFingerprintsOrNull(eventId: eventId);
+      // null = backend'e ulaşılamadı → lokal veriye dokunma.
+      if (raw == null) return;
+
+      if (raw.isEmpty) {
+        await _reconcileWipedBackend();
+        return;
+      }
+      final remote = <Fingerprint>[];
+      for (final j in raw) {
+        try {
+          remote.add(Fingerprint.fromJson(j));
+        } catch (e) {
+          _log('⚠️ Geçersiz fingerprint atlandı: $e');
+        }
+      }
+      if (remote.isEmpty) return;
+
+      final byId = <String, Fingerprint>{};
+      for (final f in fingerprintEngine.knownFingerprints) {
+        byId[f.id] = f;
+      }
+      for (final f in remote) {
+        byId[f.id] = f; // backend güncel kabul edilir
+      }
+      final merged = byId.values.toList();
+      fingerprintEngine.loadFingerprints(merged);
+      await _prefs.saveFingerprints(merged);
+      state = state.copyWith(knownFingerprints: List.unmodifiable(merged));
+      _log('✅ ${remote.length} fingerprint backend\'den indirildi (toplam ${merged.length}).');
+    } catch (e) {
+      _log('❌ Fingerprint sync hatası: $e');
+    }
+  }
+
+  /// Backend ulaşılabilir ama BOŞ döndüğünde (operatör wipe etti) lokal tarafı
+  /// uzlaştırır: orphan kalan fingerprint'leri ve açık dwell oturumunu temizler
+  /// ki çalışan uygulama eski standı (örn. "asd") otomatik geri basmasın.
+  ///
+  /// Kasıtlı yeni kayıtları korumak için grace penceresi: son
+  /// [_wipeReconcileGrace] içinde "Konum Kaydet" yapıldıysa atla (push henüz
+  /// backend'e ulaşmamış olabilir; bir sonraki tick'te zaten görünür olur).
+  ///
+  /// startDeviceRanging içindeki beacon işleme mantığına DOKUNMAZ — sadece
+  /// fingerprint deposunu ve detectedLocation/session alanlarını sıfırlar.
+  Future<void> _reconcileWipedBackend() async {
+    // Temizlenecek lokal veri yoksa no-op (ilk açılış / zaten temiz).
+    final hasLocalFingerprints = fingerprintEngine.knownFingerprints.isNotEmpty;
+    final hasOpenSession =
+        state.detectedLocation != null || state.currentSessionStart != null;
+    if (!hasLocalFingerprints && !hasOpenSession) return;
+
+    // Grace: kasıtlı yeni kayıt, push backend'e ulaşmadan silinmesin.
+    final lastSave = _lastLocalFingerprintSaveAt;
+    if (lastSave != null &&
+        DateTime.now().difference(lastSave) < _wipeReconcileGrace) {
+      _log('⏳ Backend boş ama yakın zamanda konum kaydedildi — reconcile erteleniyor.');
+      return;
+    }
+
+    _log('🧹 Backend boş (wipe edilmiş) — lokal fingerprint/oturum temizleniyor.');
+
+    // 1) Açık dwell oturumunu DÜŞÜR (göndermeden). Bu oturum silinen standa ait;
+    //    kapanışta sendVisitEvent ile "asd" geri yazılmasını burada engelliyoruz.
+    if (hasOpenSession) {
+      await _prefs.clearCurrentSession();
+      state = state.copyWith(
+        detectedLocation: null,
+        currentSessionStart: null,
+        trilaterationX: null,
+        trilaterationY: null,
+        positionSource: null,
+      );
+      _locationLossCount = 0;
+    }
+
+    // 2) Orphan fingerprint'leri lokalden de sil (engine + disk + state).
+    if (hasLocalFingerprints) {
+      fingerprintEngine.loadFingerprints(const []);
+      await _prefs.saveFingerprints(const []);
+      state = state.copyWith(knownFingerprints: const []);
+    }
   }
 
   Future<void> _registerStandFromFingerprint(String name) async {
     try {
-      final ok = await _api.registerStand(name: name);
+      // Stand konumu normalde admin panelden drag-drop ile verilir; backend
+      // artık rastgele konum atamıyor. Yine de fingerprint anında bir
+      // trilaterasyon konumu biliniyorsa başlangıç tahmini olarak gönderilir
+      // (admin sonra haritada düzeltebilir). Konum yoksa null gider → backend
+      // stand'ı "yerleştirilmemiş" olarak kaydeder.
+      final ok = await _api.registerStand(
+        name: name,
+        x: state.trilaterationX,
+        y: state.trilaterationY,
+      );
       if (ok) {
         _log('✅ Stand backend\'e kaydedildi (fingerprint→stand): "$name"');
       } else {
@@ -1412,6 +1725,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     fingerprintEngine.removeFingerprintById(id);
     await _prefs.saveFingerprints(fingerprintEngine.knownFingerprints);
     state = state.copyWith(knownFingerprints: List.unmodifiable(fingerprintEngine.knownFingerprints));
+    // Backend'den de sil — diğer cihazlar bir sonraki sync'te güncellenir.
+    unawaited(_api.deleteFingerprint(id));
   }
 
   void _updateLifecycleAndEvict(DateTime now) {

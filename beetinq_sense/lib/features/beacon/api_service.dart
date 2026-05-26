@@ -120,6 +120,23 @@ class ApiService {
 
   static String get _baseUrl => _cachedBaseUrl ?? _fallbackBaseUrl();
 
+  /// UI'da göstermek için aktif sunucu adresi (host:port). Saha günü
+  /// "hangi sunucuya bağlıyım" teşhisi için.
+  static String get currentBaseUrl => _baseUrl;
+
+  /// Backend'e ulaşılabiliyor mu? /api/discover'a kısa timeout'lu ping.
+  /// Ana ekrandaki bağlantı göstergesi periyodik çağırır.
+  static Future<bool> pingServer() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$_baseUrl/discover'))
+          .timeout(const Duration(seconds: 3));
+      return res.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Otomatik keşif (Task 2.19). Cihazın IPv4 subnet'ini tarayıp
   /// `/api/discover` cevabı veren backend'i bulur ve cache + SharedPreferences'a
   /// yazar. Saha günü kullanıcı IP girmek zorunda kalmasın diye.
@@ -398,16 +415,39 @@ class ApiService {
 
   /// Test/demo wipe — backend'deki tüm visit/contact/stand/beacon kayıtlarını
   /// siler. Settings page'deki "Tüm test verisini sil" butonu kullanır.
+  /// resetDevices=true ise backend "uzaktan sıfırlama epoch'unu" da ilerletir;
+  /// bağlı diğer telefonlar bir sonraki sync'te kendini sıfırlar.
   /// 200 başarı, başka her şey hata.
-  Future<bool> wipeServerData() async {
+  Future<bool> wipeServerData({bool resetDevices = false}) async {
     try {
       final response = await http
-          .post(Uri.parse('$_baseUrl/admin/wipe'))
+          .post(
+            Uri.parse('$_baseUrl/admin/wipe'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'resetDevices': resetDevices}),
+          )
           .timeout(const Duration(seconds: 15));
       return response.statusCode >= 200 && response.statusCode < 300;
     } catch (e) {
       debugPrint('❌ [API] wipeServerData hatası: $e');
       return false;
+    }
+  }
+
+  /// Backend'in uzaktan cihaz sıfırlama epoch'unu döndürür (ms timestamp).
+  /// Erişilemezse/-hata -1 → çağıran kontrolü atlar (yanlışlıkla wipe yok).
+  Future<int> fetchDeviceResetEpoch() async {
+    try {
+      final res = await http
+          .get(Uri.parse('$_baseUrl/admin/device-reset-epoch'))
+          .timeout(const Duration(seconds: 8));
+      if (res.statusCode < 200 || res.statusCode >= 300) return -1;
+      final data = jsonDecode(res.body) as Map<String, dynamic>;
+      final e = data['epoch'];
+      return e is num ? e.toInt() : -1;
+    } catch (e) {
+      debugPrint('❌ [API] fetchDeviceResetEpoch hatası: $e');
+      return -1;
     }
   }
 
@@ -545,6 +585,92 @@ class ApiService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
+  // FINGERPRINT SENKRON — bir cihaz mekânı haritalar (RSSI parmak izi),
+  // diğer cihazlar indirip kullanır. Beacon koordinat senkronuyla aynı mantık.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /// Fingerprint'i (RSSI parmak izi) backend'e gönderir. Aynı id ile tekrar
+  /// gönderilirse backend upsert eder. true = başarılı.
+  Future<bool> pushFingerprint({
+    required String id,
+    required String name,
+    required Map<String, int> rssiMap,
+    String eventId = 'default',
+  }) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$_baseUrl/fingerprints'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'id': id,
+              'name': name,
+              'rssiMap': rssiMap,
+              'eventId': eventId,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (e) {
+      debugPrint('❌ [API] pushFingerprint hatası: $e');
+      return false;
+    }
+  }
+
+  /// Backend'deki tüm fingerprint'leri çeker (diğer cihazların kaydettikleri
+  /// dahil). Mobil bunları kendi FingerprintEngine'ine merge eder.
+  ///
+  /// Hata/erişilemezlik durumunda boş liste döner (mevcut çağrıların davranışı
+  /// korunur). "Backend gerçekten boş mu, yoksa ulaşılamadı mı" ayrımı gereken
+  /// yerler için [fetchFingerprintsOrNull] kullanılmalı.
+  Future<List<Map<String, dynamic>>> fetchFingerprints({
+    String eventId = 'default',
+  }) async {
+    return (await fetchFingerprintsOrNull(eventId: eventId)) ?? const [];
+  }
+
+  /// [fetchFingerprints]'in erişilebilirlik-farkında varyantı:
+  /// - HTTP 200 → liste (boş olabilir = backend gerçekten boş)
+  /// - ağ hatası / timeout / non-200 → `null` (backend'e ulaşılamadı/hata)
+  ///
+  /// Wipe sonrası reconciliation için kritik: "200 + boş liste" operatörün
+  /// backend'i sildiği anlamına gelir; "null" sadece offline demektir ve lokal
+  /// veri silinmemelidir.
+  Future<List<Map<String, dynamic>>?> fetchFingerprintsOrNull({
+    String eventId = 'default',
+  }) async {
+    try {
+      final res = await http
+          .get(Uri.parse('$_baseUrl/fingerprints?eventId=$eventId'))
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(res.body);
+        return List<Map<String, dynamic>>.from(
+          data.map((e) => Map<String, dynamic>.from(e as Map)),
+        );
+      }
+      debugPrint('⚠️ [API] fetchFingerprints status: ${res.statusCode}');
+      return null;
+    } catch (e) {
+      debugPrint('❌ [API] fetchFingerprints hatası: $e');
+      return null;
+    }
+  }
+
+  /// Backend'den fingerprint sil (lokal silme ile tutarlılık için).
+  Future<bool> deleteFingerprint(String id) async {
+    try {
+      final res = await http
+          .delete(Uri.parse('$_baseUrl/fingerprints/${Uri.encodeComponent(id)}'))
+          .timeout(const Duration(seconds: 10));
+      return res.statusCode == 200 || res.statusCode == 404;
+    } catch (e) {
+      debugPrint('❌ [API] deleteFingerprint hatası: $e');
+      return false;
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   // CONTACT TRACING (Task 1.5.7) — visits ile aynı pattern: önce enqueue,
   // sonra flush, idempotent clientEventId. Ayrı queue anahtarı + ayrı lock.
   // ─────────────────────────────────────────────────────────────────────────
@@ -589,6 +715,11 @@ class ApiService {
   }
 
   /// Contact event'i backend'e gönderir. Önce kuyruğa yaz, sonra flush dene.
+  ///
+  /// [clientEventId] verilirse idempotency anahtarı olarak kullanılır; uzun
+  /// temaslarda aynı encounter birden çok kez (güncel süreyle) gönderildiğinde
+  /// backend upsert ile tek kaydı günceller. Verilmezse her çağrıda yeni v4
+  /// üretilir (geriye dönük uyumluluk).
   Future<bool> sendContactEvent({
     required String deviceId,
     required String seenAnonId,
@@ -597,9 +728,11 @@ class ApiService {
     required int durationSeconds,
     required double avgRssi,
     required int sampleCount,
+    String? clientEventId,
+    String? locationName,
   }) async {
     final payload = <String, dynamic>{
-      'clientEventId': _uuid.v4(),
+      'clientEventId': clientEventId ?? _uuid.v4(),
       'deviceId': deviceId,
       'seenAnonId': seenAnonId,
       'firstSeenAt': firstSeenAt.toUtc().toIso8601String(),
@@ -607,6 +740,9 @@ class ApiService {
       'durationSeconds': durationSeconds,
       'avgRssi': avgRssi,
       'sampleCount': sampleCount,
+      // Temas anındaki stand/konum (biliniyorsa). Boşsa hiç gönderme.
+      if (locationName != null && locationName.isNotEmpty)
+        'locationName': locationName,
     };
 
     await _enqueueContact(payload);

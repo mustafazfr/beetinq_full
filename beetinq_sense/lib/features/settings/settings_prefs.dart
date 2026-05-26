@@ -14,6 +14,11 @@ class SettingsPrefs {
   // yeniden derlemeden ayarlanabilsin diye SharedPreferences'a yazılır.
   // Boş veya null ise ApiService default'una (_lanIp:3000/api) düşer.
   static const _kServerBaseUrlKey = 'server_base_url_v1';
+  // Uzaktan sıfırlama: telefonun en son uyguladığı wipe epoch'u. Backend
+  // epoch'u bundan büyükse telefon kendini sıfırlar. İlk kurulumda baseline
+  // olarak kaydedilir (kurulumdan önceki wipe tetiklenmez). wipeAndReset bu
+  // anahtara DOKUNMAZ (BeaconPrefs.wipeAllData kapsamı dışı) → döngü olmaz.
+  static const _kLastWipeEpochKey = 'last_applied_wipe_epoch_v1';
 
   // Default: true. Yeni kurulumda tarama açık; kullanıcı kapatmak isterse
   // ayarlar ekranından opt-out edebilir.
@@ -59,6 +64,18 @@ class SettingsPrefs {
     } else {
       await sp.setString(_kServerBaseUrlKey, clean);
     }
+  }
+
+  /// Telefonun en son uyguladığı uzaktan-sıfırlama epoch'u. null = hiç
+  /// kaydedilmedi (ilk kurulum → baseline alınacak).
+  Future<int?> getLastWipeEpoch() async {
+    final sp = await _prefs;
+    return sp.getInt(_kLastWipeEpochKey);
+  }
+
+  Future<void> setLastWipeEpoch(int epoch) async {
+    final sp = await _prefs;
+    await sp.setInt(_kLastWipeEpochKey, epoch);
   }
 }
 
