@@ -283,6 +283,15 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   BeaconState build() {
     _service = ref.read(beaconServiceProvider);
     WidgetsBinding.instance.addObserver(this);
+    // İlk lifecycle state'i flutter'dan oku: lifecycle event'i hiç gelmeden de
+    // doğru başlangıç değeri (örn Xcode'dan Run sonrası iOS bazen resumed
+    // event'ini geç tetikler veya hiç tetiklemez).
+    final initial = WidgetsBinding.instance.lifecycleState;
+    if (Platform.isIOS && initial != null) {
+      _appInForeground = initial != AppLifecycleState.paused &&
+                         initial != AppLifecycleState.detached &&
+                         initial != AppLifecycleState.hidden;
+    }
     ref.onDispose(() {
       WidgetsBinding.instance.removeObserver(this);
       _statusPollTimer?.cancel();
@@ -313,12 +322,21 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   @override
   // ignore: avoid_renaming_method_parameters
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
+    // BUG FIX: iOS lifecycle akışı active → inactive → paused → inactive →
+    // resumed sırasıyla gider; bazen resumed hiç gelmez veya kullanıcı kısa
+    // bir geçişte yalnızca `inactive` görür. Eski kod sadece resumed'da true
+    // yapıyordu → bir kez paused'tan sonra `inactive` durumunda takılırsa
+    // _appInForeground sonsuza kadar false kalıyordu → iPhone contact
+    // event'lerini hiç işlemiyordu ("0 contact" rağmen Android iPhone'u
+    // görüyor). Yeni: paused/detached/hidden değilse foreground sayılır.
+    if (Platform.isIOS) {
+      _appInForeground = lifecycle != AppLifecycleState.paused &&
+                         lifecycle != AppLifecycleState.detached &&
+                         lifecycle != AppLifecycleState.hidden;
+    }
+
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
-      // iOS'ta arka planda contact event işlenmesin (R4). Android arka planda
-      // foreground service ile contact yapması scope içinde → flag'i sadece
-      // iOS'ta düşür.
-      if (Platform.isIOS) _appInForeground = false;
       if (state.detectedLocation != null && state.currentSessionStart != null) {
         _prefs.saveCurrentSession(
           state.detectedLocation,
@@ -340,9 +358,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
 
     if (lifecycle == AppLifecycleState.resumed) {
-      _appInForeground = true;
-      // Contact tracing (Task 1.5.8): iOS'ta ön plana dönüldüğünde advertise
-      // yeniden başlatılır (opt-in durumunda). Android'de zaten sürekli.
+      // _appInForeground zaten üstte ayarlandı. Burada sadece iOS resumed'da
+      // advertiser+scanner restart edilir (paused'da durdurulmuştu).
       if (Platform.isIOS) {
         _restartContactAdvertiserIfEnabled();
       }
