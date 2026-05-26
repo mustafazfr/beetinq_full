@@ -152,6 +152,11 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       if (url != null) {
         // Settings prefs'i de senkronize tut.
         await ref.read(settingsPrefsProvider).setServerBaseUrl(url);
+        // Yeni adres bulundu → kuyrukta bekleyen ziyaret/temas'ı hemen
+        // göndermeyi dene (eski/yanlış URL'de birikmiş olabilir).
+        final api = ref.read(apiServiceProvider);
+        api.flushQueue().ignore();
+        api.flushContactQueue().ignore();
         setState(() {
           _serverUrlCtrl.text = url;
           _serverUrlDirty = false;
@@ -198,6 +203,12 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       await ref.read(settingsPrefsProvider).setServerBaseUrl(
             raw.isEmpty ? null : raw,
           );
+      // Adres değişti → kuyrukta bekleyen kayıtları yeni adrese hemen
+      // göndermeyi dene (Mobil R11): aksi halde bir sonraki oturum kapanışına
+      // kadar beklerdi.
+      final api = ref.read(apiServiceProvider);
+      api.flushQueue().ignore();
+      api.flushContactQueue().ignore();
       if (!mounted) return;
       setState(() {
         _serverUrlDirty = false;
