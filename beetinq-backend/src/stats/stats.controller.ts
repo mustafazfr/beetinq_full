@@ -58,6 +58,15 @@ export class StatsController {
     return this.statsService.getContactStats(q.from, q.to);
   }
 
+  /**
+   * Ham temas olayları listesi — "kim kimi ne zaman gördü" okunur tablosu.
+   * Aggregate (/contacts) bozulmadan ayrı route; aynı tarih filtresine uyar.
+   */
+  @Get('contact-events')
+  getContactEvents(@Query() q: StatsQueryDto) {
+    return this.statsService.getContactEvents(q.from, q.to);
+  }
+
   /** Saatlik trafik dağılımı (24 kova). Dashboard bar chart için. */
   @Get('hourly')
   getHourlyTraffic(@Query() q: StatsQueryDto) {

@@ -154,68 +154,225 @@ export class StatsService {
   }
 
   /**
-   * Contact tracing aggregate (Task 1.5.9).
-   * - totalContacts: kayıt sayısı (her çift kontağını iki taraf da
-   *   kaydederse 2 sayılır; "benzersiz çift" sayısı istenirse topPairs'e bak)
-   * - uniqueDevicesInvolved: deviceId DISTINCT ∪ seenAnonId DISTINCT kümesi.
-   *   seenAnonId anon hash olduğu için deviceId ile karşılaştırılamaz,
-   *   dolayısıyla gerçek "benzersiz cihaz" sayısı bu iki kümenin birleşiminin
-   *   üst sınırıdır. Tezde "tahmini" olarak belirt.
-   * - avgDuration: saniye cinsinden tüm temasların ortalaması.
-   * - topPairs: en çok tekrar eden (deviceId, seenAnonId) çiftleri, ilk 10.
+   * Raporlayan cihazın tam hash deviceId'sini, karşı tarafın gördüğü anonId
+   * formatına (xxxx:yyyy) indirger. Mobildeki encodeDeviceId + decodeAnonId
+   * ile AYNI mantık: SHA-256'nın ilk 4 byte'ı major:minor olur.
+   *
+   * Böylece "A raporladı" (deviceId) ile "biri A'yı gördü" (seenAnonId) aynı
+   * kimliğe çöker → her cihaz tek düğüm/satır olur, graf/matris anlam kazanır.
+   */
+  private deviceIdToAnonId(deviceId: string): string {
+    const prefix = deviceId.slice(0, 8).toLowerCase();
+    if (!/^[0-9a-f]{8}$/.test(prefix)) {
+      // Beklenmeyen format (eski/fallback id) — prefix'i olduğu gibi anahtarla.
+      return deviceId.slice(0, 9);
+    }
+    return `${prefix.slice(0, 4)}:${prefix.slice(4, 8)}`;
+  }
+
+  /**
+   * Contact tracing aggregate — kimlik normalize edilmiş.
+   *
+   * Her temas kaydı asimetrik (deviceId = raporlayan tam hash, seenAnonId =
+   * görülen anon). Burada deviceId de anonId'ye indirgenip temas YÖNSÜZ çift
+   * olarak toplanır (A↔B = B↔A). Çıktı:
+   * - totalContacts: ham kayıt sayısı
+   * - uniqueDevicesInvolved: GERÇEK benzersiz kişi sayısı (artık üst sınır değil)
+   * - participants: kişi listesi (anonId + temas sayısı + toplam süre) — matris ekseni
+   * - pairs: yönsüz temas çiftleri (count, toplam/ort süre, ort RSSI) — matris hücreleri + liste
+   * - topPairs: ilk 10 (geriye dönük uyumluluk için a/b alanlı)
    */
   async getContactStats(from?: string, to?: string) {
-    const qb = this.contactsRepository
-      .createQueryBuilder('c')
-      .select('COUNT(*)', 'totalContacts')
-      .addSelect('AVG(c.durationSeconds)', 'avgDuration');
-    // Contact için tarih filtre kolonu firstSeenAt — ayrı helper yerine inline.
+    const qb = this.contactsRepository.createQueryBuilder('c');
     if (from) qb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
     if (to) qb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
-    const agg = await qb.getRawOne();
+    const rows = await qb.getMany();
 
-    // Unique devices (bir taraf): deviceId + seenAnonId kümelerinin birleşimi.
-    const deviceQb = this.contactsRepository
-      .createQueryBuilder('c')
-      .select('DISTINCT c.deviceId', 'v');
-    if (from) deviceQb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
-    if (to) deviceQb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
-    const deviceRows = await deviceQb.getRawMany();
+    // Yönsüz çift + kişi aggregate (JS — fuar ölçeğinde kayıt sayısı yönetilebilir).
+    const pairMap = new Map<
+      string,
+      { a: string; b: string; count: number; totalDuration: number; rssiSum: number }
+    >();
+    const persons = new Map<
+      string,
+      { anonId: string; contacts: number; totalDuration: number; degree: number }
+    >();
+    let durationSum = 0;
 
-    const anonQb = this.contactsRepository
-      .createQueryBuilder('c')
-      .select('DISTINCT c.seenAnonId', 'v');
-    if (from) anonQb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
-    if (to) anonQb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
-    const anonRows = await anonQb.getRawMany();
+    // Stand bazlı temas: hangi standda kaç temas oldu (networking hotspot).
+    const standMap = new Map<string, { locationName: string; count: number; totalDuration: number }>();
 
-    const unique = new Set<string>();
-    for (const r of deviceRows) unique.add(`d:${r.v}`);
-    for (const r of anonRows) unique.add(`a:${r.v}`);
+    // Temas süresi dağılımı (her ölçekte okunur — binlerce temasta bile 5 kova).
+    const durationBuckets = [
+      { label: '<1dk', min: 0, max: 60, count: 0 },
+      { label: '1-2dk', min: 60, max: 120, count: 0 },
+      { label: '2-5dk', min: 120, max: 300, count: 0 },
+      { label: '5-10dk', min: 300, max: 600, count: 0 },
+      { label: '10dk+', min: 600, max: Infinity, count: 0 },
+    ];
 
-    const pairsQb = this.contactsRepository
-      .createQueryBuilder('c')
-      .select('c.deviceId', 'deviceId')
-      .addSelect('c.seenAnonId', 'seenAnonId')
-      .addSelect('COUNT(*)', 'count')
-      .groupBy('c.deviceId')
-      .addGroupBy('c.seenAnonId')
-      .orderBy('count', 'DESC')
-      .limit(20);
-    if (from) pairsQb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
-    if (to) pairsQb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
-    const pairs = await pairsQb.getRawMany();
+    for (const r of rows) {
+      const a = this.deviceIdToAnonId(r.deviceId);
+      const b = r.seenAnonId;
+      durationSum += r.durationSeconds;
+
+      // Süre dağılımı (self dahil — her temas kaydı sayılır).
+      for (const bucket of durationBuckets) {
+        if (r.durationSeconds >= bucket.min && r.durationSeconds < bucket.max) {
+          bucket.count++;
+          break;
+        }
+      }
+
+      // Stand bazlı temas (konum dolu olanlar).
+      if (r.locationName) {
+        const sm =
+          standMap.get(r.locationName) ??
+          { locationName: r.locationName, count: 0, totalDuration: 0 };
+        sm.count++;
+        sm.totalDuration += r.durationSeconds;
+        standMap.set(r.locationName, sm);
+      }
+
+      if (a === b) continue; // self-contact güvenlik filtresi
+
+      // Yönsüz: alfabetik sırala ki A↔B ve B↔A aynı hücreye düşsün.
+      const [x, y] = a < b ? [a, b] : [b, a];
+      const key = `${x}|${y}`;
+      const p =
+        pairMap.get(key) ??
+        { a: x, b: y, count: 0, totalDuration: 0, rssiSum: 0 };
+      p.count++;
+      p.totalDuration += r.durationSeconds;
+      p.rssiSum += r.avgRssi;
+      pairMap.set(key, p);
+
+      for (const id of [a, b]) {
+        const pr =
+          persons.get(id) ??
+          { anonId: id, contacts: 0, totalDuration: 0, degree: 0 };
+        pr.contacts++;
+        pr.totalDuration += r.durationSeconds;
+        persons.set(id, pr);
+      }
+    }
+
+    // Derece (degree) = bir kişinin temas ettiği FARKLI kişi sayısı. Yönsüz
+    // benzersiz çiftlerden türetilir — her çift iki tarafın derecesini +1 yapar.
+    for (const p of pairMap.values()) {
+      const pa = persons.get(p.a);
+      if (pa) pa.degree++;
+      const pb = persons.get(p.b);
+      if (pb) pb.degree++;
+    }
+
+    const pairs = Array.from(pairMap.values())
+      .map((p) => ({
+        a: p.a,
+        b: p.b,
+        count: p.count,
+        totalDuration: p.totalDuration,
+        avgDuration: Math.round(p.totalDuration / p.count),
+        avgRssi: Math.round(p.rssiSum / p.count),
+      }))
+      .sort((m, n) => n.count - m.count || n.totalDuration - m.totalDuration);
+
+    // En aktif kişiler önce (en çok farklı kişiyle temas eden = potansiyel "hub").
+    const participants = Array.from(persons.values()).sort(
+      (m, n) => n.degree - m.degree || n.totalDuration - m.totalDuration,
+    );
+
+    // Kişi başı temas (derece) dağılımı — ölçekten bağımsız okunur.
+    const degreeBuckets = [
+      { label: '1 kişi', min: 1, max: 1, count: 0 },
+      { label: '2-3', min: 2, max: 3, count: 0 },
+      { label: '4-6', min: 4, max: 6, count: 0 },
+      { label: '7-10', min: 7, max: 10, count: 0 },
+      { label: '11+', min: 11, max: Infinity, count: 0 },
+    ];
+    for (const p of participants) {
+      for (const bucket of degreeBuckets) {
+        if (p.degree >= bucket.min && p.degree <= bucket.max) {
+          bucket.count++;
+          break;
+        }
+      }
+    }
+
+    const personCount = persons.size;
+    // Kişi başı ortalama temas (farklı kişi) = Σderece / kişi = 2·|çift| / kişi.
+    const avgContactsPerPerson =
+      personCount > 0 ? +((2 * pairs.length) / personCount).toFixed(1) : 0;
 
     return {
-      totalContacts: Number(agg?.totalContacts) || 0,
-      uniqueDevicesInvolved: unique.size,
-      avgDuration: Math.round(Number(agg?.avgDuration) || 0),
-      topPairs: pairs.map((p) => ({
-        deviceId: `${String(p.deviceId).slice(0, 8)}…`, // PII: sadece prefix
-        seenAnonId: p.seenAnonId,
-        count: Number(p.count),
+      totalContacts: rows.length,
+      uniqueDevicesInvolved: personCount,
+      avgDuration: rows.length ? Math.round(durationSum / rows.length) : 0,
+      avgContactsPerPerson,
+      // Matris yalnız küçük etkinlikte anlamlı (N² hücre); büyükse panel
+      // dağılımlara döner. Eşik 15: 15×15=225 hücre hâlâ okunur.
+      showMatrix: personCount > 0 && personCount <= 15,
+      participants,
+      pairs,
+      durationDistribution: durationBuckets.map((b) => ({
+        label: b.label,
+        count: b.count,
+      })),
+      // Stand bazlı temas (en çok temas olan stand önce) — networking hotspot.
+      standBreakdown: Array.from(standMap.values()).sort(
+        (m, n) => n.count - m.count,
+      ),
+      degreeDistribution: degreeBuckets.map((b) => ({
+        label: b.label,
+        count: b.count,
+      })),
+      // Geriye dönük uyumluluk (eski panel/PDF alanları a→deviceId, b→seenAnonId).
+      topPairs: pairs.slice(0, 10).map((p) => ({
+        deviceId: p.a,
+        seenAnonId: p.b,
+        count: p.count,
       })),
     };
+  }
+
+  /**
+   * Ham temas kayıtları — "KİM KİMİ NE ZAMAN gördü" okunur listesi için.
+   *
+   * getContactStats aggregate döndürür (matris/çiftler); bu method ise her
+   * temas olayını tek tek, yönlü olarak döndürür:
+   * - reporterAnonId: raporlayan cihazın tam hash'i anonId'ye indirgenmiş
+   *   ("xxxx:yyyy"). seenAnonId ile AYNI formatta → panelde net karşılaştırma.
+   * - seenAnonId: görülen cihazın anon kimliği (DB'de zaten kısa).
+   * - firstSeenAt / lastSeenAt: ISO string (format panelde yapılır).
+   * - durationSeconds, avgRssi, locationName: olduğu gibi.
+   *
+   * Yön korunur (A gördü → B); aggregate'teki yönsüz çiftlerin aksine burada
+   * "kim raporladı" bilgisi okunur kalır. En yeni temas üstte (lastSeenAt DESC).
+   * Tarih filtresi getContactStats ile aynı (firstSeenAt aralığı).
+   */
+  async getContactEvents(from?: string, to?: string) {
+    const qb = this.contactsRepository.createQueryBuilder('c');
+    if (from) qb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
+    if (to) qb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
+    qb.orderBy('c.lastSeenAt', 'DESC');
+    const rows = await qb.getMany();
+
+    return rows.map((r) => ({
+      id: r.id,
+      reporterAnonId: this.deviceIdToAnonId(r.deviceId),
+      seenAnonId: r.seenAnonId,
+      firstSeenAt:
+        r.firstSeenAt instanceof Date
+          ? r.firstSeenAt.toISOString()
+          : new Date(r.firstSeenAt).toISOString(),
+      lastSeenAt:
+        r.lastSeenAt instanceof Date
+          ? r.lastSeenAt.toISOString()
+          : new Date(r.lastSeenAt).toISOString(),
+      durationSeconds: r.durationSeconds,
+      avgRssi: Math.round(r.avgRssi),
+      locationName: r.locationName ?? null,
+    }));
   }
 
   /**
