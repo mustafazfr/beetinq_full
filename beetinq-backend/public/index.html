@@ -173,8 +173,39 @@
       <button class="btn btn-ghost" onclick="clearDateFilter()">Temizle</button>
       <button class="btn btn-green" onclick="downloadCsv()" style="margin-left:8px">📥 CSV</button>
       <button class="btn btn-green" onclick="downloadPdf()" style="margin-left:4px;background:#dc2626">📄 PDF Rapor</button>
-      <button class="btn btn-red" style="margin-left:auto" onclick="wipeAll(false)" title="Sadece sunucudaki visit + contact + stand + beacon kayıtları silinir. Telefonlar dokunulmaz.">🗑️ Sunucuyu Sıfırla</button>
+      <button class="btn" style="margin-left:auto;background:#1d4ed8;color:#fff" onclick="openSelectiveWipe()" title="Hangi kategorileri (ve hangi tarih aralığını) silmek istediğini seç">🎯 Seçerek Sil</button>
+      <button class="btn btn-red" style="margin-left:8px" onclick="wipeAll(false)" title="Sadece sunucudaki visit + contact + stand + beacon kayıtları silinir. Telefonlar dokunulmaz.">🗑️ Sunucuyu Sıfırla</button>
       <button class="btn btn-red" style="margin-left:8px;background:#7c2d12" onclick="wipeAll(true)" title="Sunucu + bağlı telefonların yerel verileri (fingerprint, oturum, kuyruk) ~30sn içinde otomatik sıfırlanır">📱 Sunucu + Telefonları Sıfırla</button>
+    </div>
+
+    <!-- Seçerek Sil modal — hangi kategoriler + opsiyonel tarih aralığı. -->
+    <div id="selWipeModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:1000;align-items:center;justify-content:center">
+      <div style="background:#1a1a1a;border:1px solid #2a2a2a;border-radius:10px;max-width:480px;width:92%;padding:22px;color:#fff;font-size:13px">
+        <h3 style="margin:0 0 4px 0;font-size:16px">🎯 Seçerek Sil</h3>
+        <p style="color:#888;font-size:12px;margin:0 0 14px 0">Yalnızca işaretli kategoriler silinir. Tarih aralığı sadece <b>Ziyaret</b> ve <b>Temas</b> için uygulanır.</p>
+
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="selVisits"> Ziyaret kayıtları (visits)</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="selContacts"> Temas kayıtları (contacts)</label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="selStands"> Standlar <span style="color:#888;font-size:11px">(tüm tablo)</span></label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="selBeacons"> Beacon koordinatları <span style="color:#888;font-size:11px">(tüm tablo)</span></label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="selFingerprints"> Fingerprint snapshot'ları <span style="color:#888;font-size:11px">(tüm tablo)</span></label>
+        </div>
+
+        <div style="border-top:1px solid #2a2a2a;padding-top:12px;margin-bottom:14px">
+          <div style="color:#888;font-size:12px;margin-bottom:6px">Tarih aralığı (opsiyonel, sadece visit/contact için):</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="datetime-local" id="selFrom" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+            <span style="color:#666;align-self:center">—</span>
+            <input type="datetime-local" id="selTo" style="background:#111;border:1px solid #333;color:#fff;padding:6px 8px;border-radius:6px;font-size:12px">
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-ghost" onclick="closeSelectiveWipe()">İptal</button>
+          <button class="btn btn-red" onclick="runSelectiveWipe()">Seçilenleri Sil</button>
+        </div>
+      </div>
     </div>
 
     <div class="stats-row">
@@ -465,6 +496,66 @@
         ? `\n\n📱 Telefonlar ~30sn içinde kendini sıfırlayacak (epoch=${r.deviceResetEpoch}).`
         : '';
       alert(`Silindi:\n• ${r.deleted.visits} visit\n• ${r.deleted.contacts} contact\n• ${r.deleted.beacons} beacon\n• ${r.deleted.stands} stand` + tail);
+      await loadAll();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SEÇEREK SİL — checkbox modal → POST /admin/wipe-selective
+    // ─────────────────────────────────────────────────────────────────────
+    function openSelectiveWipe() {
+      // Her açılışta temiz başla.
+      ['selVisits','selContacts','selStands','selBeacons','selFingerprints']
+        .forEach(id => document.getElementById(id).checked = false);
+      document.getElementById('selFrom').value = '';
+      document.getElementById('selTo').value = '';
+      document.getElementById('selWipeModal').style.display = 'flex';
+    }
+    function closeSelectiveWipe() {
+      document.getElementById('selWipeModal').style.display = 'none';
+    }
+    async function runSelectiveWipe() {
+      const body = {
+        visits: document.getElementById('selVisits').checked,
+        contacts: document.getElementById('selContacts').checked,
+        stands: document.getElementById('selStands').checked,
+        beacons: document.getElementById('selBeacons').checked,
+        fingerprints: document.getElementById('selFingerprints').checked,
+      };
+      const anySelected = Object.values(body).some(v => v);
+      if (!anySelected) { alert('En az bir kategori seç.'); return; }
+      const fromVal = document.getElementById('selFrom').value;
+      const toVal = document.getElementById('selTo').value;
+      if (fromVal) body.from = new Date(fromVal).toISOString();
+      if (toVal) body.to = new Date(toVal).toISOString();
+
+      // Onay özeti — kullanıcı tam ne sileceğini görsün.
+      const labels = {
+        visits: 'Ziyaret', contacts: 'Temas',
+        stands: 'Stand', beacons: 'Beacon', fingerprints: 'Fingerprint',
+      };
+      const selected = Object.keys(labels).filter(k => body[k]).map(k => labels[k]).join(', ');
+      const rangeStr = (fromVal || toVal)
+        ? `\nTarih aralığı: ${fromVal || '*'} → ${toVal || '*'} (sadece Ziyaret/Temas için)`
+        : '';
+      if (!confirm(`Silinecekler: ${selected}${rangeStr}\n\nDevam?`)) return;
+
+      const res = await fetch('/api/admin/wipe-selective', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { alert('Hata: ' + (await res.text())); return; }
+      const r = await res.json();
+      const d = r.deleted || {};
+      alert(
+        `Silindi:\n` +
+        `• ${d.visits ?? 0} ziyaret\n` +
+        `• ${d.contacts ?? 0} temas\n` +
+        `• ${d.stands ?? 0} stand\n` +
+        `• ${d.beacons ?? 0} beacon\n` +
+        `• ${d.fingerprints ?? 0} fingerprint`,
+      );
+      closeSelectiveWipe();
       await loadAll();
     }
 

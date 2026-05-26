@@ -127,4 +127,76 @@ export class AdminService {
       this.wipeState.endWipe();
     }
   }
+
+  /**
+   * Seçerek silme: yalnızca işaretli kategorileri siler. visits ve contacts
+   * için opsiyonel tarih aralığı uygulanır (from/to, enteredAt / firstSeenAt).
+   * stands/beacons/fingerprints zaten tarihsiz → seçilirse tablo komple silinir.
+   *
+   * Cihaz tarafı dokunulmaz (uzaktan reset epoch'u ilerletilmez). "Sıfırla"
+   * butonları nükleer seçenek; bu seçici silme cerrahi.
+   */
+  async wipeSelective(dto: {
+    visits?: boolean;
+    contacts?: boolean;
+    stands?: boolean;
+    beacons?: boolean;
+    fingerprints?: boolean;
+    from?: string;
+    to?: string;
+  }) {
+    // En az bir kategori seçilmiş mi?
+    const anySelected = !!(
+      dto.visits || dto.contacts || dto.stands || dto.beacons || dto.fingerprints
+    );
+    if (!anySelected) {
+      return { success: false, error: 'Hiç kategori seçilmedi' };
+    }
+
+    this.wipeState.beginWipe();
+    try {
+      const deleted = { visits: 0, contacts: 0, stands: 0, beacons: 0, fingerprints: 0 };
+      const fromDate = dto.from ? new Date(dto.from) : null;
+      const toDate = dto.to ? new Date(dto.to) : null;
+
+      if (dto.visits) {
+        const qb = this.visits.createQueryBuilder().delete();
+        if (fromDate) qb.andWhere('enteredAt >= :from', { from: fromDate });
+        if (toDate) qb.andWhere('enteredAt <= :to', { to: toDate });
+        const r = await qb.execute();
+        deleted.visits = r.affected ?? 0;
+      }
+      if (dto.contacts) {
+        const qb = this.contacts.createQueryBuilder().delete();
+        if (fromDate) qb.andWhere('firstSeenAt >= :from', { from: fromDate });
+        if (toDate) qb.andWhere('firstSeenAt <= :to', { to: toDate });
+        const r = await qb.execute();
+        deleted.contacts = r.affected ?? 0;
+      }
+      if (dto.stands) {
+        deleted.stands = await this.stands.count();
+        await this.stands.clear();
+      }
+      if (dto.beacons) {
+        deleted.beacons = await this.beacons.count();
+        await this.beacons.clear();
+      }
+      if (dto.fingerprints) {
+        deleted.fingerprints = await this.fingerprints.count();
+        await this.fingerprints.clear();
+      }
+
+      const range = fromDate || toDate
+        ? ` [${fromDate?.toISOString() ?? '*'} → ${toDate?.toISOString() ?? '*'}]`
+        : '';
+      this.logger.warn(
+        `WIPE-SELECTIVE${range}: visit=${deleted.visits}, contact=${deleted.contacts}, ` +
+          `stand=${deleted.stands}, beacon=${deleted.beacons}, fingerprint=${deleted.fingerprints}`,
+      );
+
+      return { success: true, deleted };
+    } finally {
+      this.wipeState.endWipe();
+    }
+  }
 }

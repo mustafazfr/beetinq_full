@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
 import { WipeDto } from './dto/wipe.dto';
+import { WipeSelectiveDto } from './dto/wipe-selective.dto';
 
 @Controller('admin')
 export class AdminController {
@@ -20,6 +21,16 @@ export class AdminController {
   @Post('wipe')
   wipe(@Body() dto: WipeDto) {
     return this.adminService.wipeAll(dto.resetDevices ?? false);
+  }
+
+  /**
+   * Seçerek silme: kullanıcı admin panelden hangi kategorileri silmek
+   * istediğini işaretler. Mevcut "Sıfırla" nükleer iken bu cerrahi.
+   */
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Post('wipe-selective')
+  wipeSelective(@Body() dto: WipeSelectiveDto) {
+    return this.adminService.wipeSelective(dto);
   }
 
   /**
