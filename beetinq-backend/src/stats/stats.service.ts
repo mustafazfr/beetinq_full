@@ -105,7 +105,12 @@ export class StatsService {
       .createQueryBuilder('visit')
       .select('visit.locationName', 'locationName')
       .addSelect('COUNT(*)', 'count')
-      .where('visit.x IS NULL OR visit.y IS NULL')
+      // BUG FIX (R1): SQL operator precedence — AND OR'dan yüksek precedence
+      // taşır. Eski hali `.where('x IS NULL OR y IS NULL').andWhere('enteredAt >= :from')`
+      // sonra SQL üretirken `x IS NULL OR y IS NULL AND enteredAt >= :from` haline
+      // gelir → tarih filtresi sadece y IS NULL satırlara uygulanır, x IS NULL
+      // tüm geçmiş ziyaretler filtreden bağımsız sızar. Dış parantez ile çözüldü.
+      .where('(visit.x IS NULL OR visit.y IS NULL)')
       .groupBy('visit.locationName');
     this.applyDateFilter(fpQb, 'visit', from, to);
     const fpAggregates = await fpQb.getRawMany();
@@ -377,17 +382,21 @@ export class StatsService {
 
   /**
    * Saat bazında trafik: 24 saatlik dilimlerde ziyaret sayısı ve unique device.
-   * Saat = enteredAt'in lokal saat (00-23). Pratikte SQLite timezone neutral
-   * tutulduğu için server timezone'una göre çıkar. Tez raporu için yeterli.
+   *
+   * BUG FIX (R5 — sunum etkili): TypeORM datetime kolonunu SQLite'a UTC ISO
+   * olarak yazar; strftime default UTC kabul eder. TR (UTC+3) demosunda saat
+   * 14:30 gelen visit "11" kovasına düşüyordu → bar chart yanıltıcıydı,
+   * tez sunumunda saatler tutarsız görünebilirdi. `'localtime'` modifier'ı
+   * SQLite'a "kayıttaki UTC değeri server local saatine çevir" der.
    */
   async getHourlyTraffic(from?: string, to?: string) {
-    // SQLite specific: strftime('%H', enteredAt) → '00'..'23'
+    // SQLite specific: strftime('%H', enteredAt, 'localtime') → '00'..'23' (server local)
     const qb = this.visitsRepository
       .createQueryBuilder('visit')
-      .select("strftime('%H', visit.enteredAt)", 'hour')
+      .select("strftime('%H', visit.enteredAt, 'localtime')", 'hour')
       .addSelect('COUNT(*)', 'visitCount')
       .addSelect('COUNT(DISTINCT visit.deviceId)', 'uniqueDevices')
-      .groupBy("strftime('%H', visit.enteredAt)")
+      .groupBy("strftime('%H', visit.enteredAt, 'localtime')")
       .orderBy('hour', 'ASC');
     this.applyDateFilter(qb, 'visit', from, to);
     const rows = await qb.getRawMany();
