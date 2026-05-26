@@ -92,6 +92,8 @@ class BeaconState {
   // Temas yayını başarısızsa okunabilir sebep (örn "Bu cihaz BLE yayın
   // DESTEKLEMİYOR"). UI bunu Temas Yayını satırının altında gösterir.
   final String? contactError;
+  // TEŞHİS: ranging'de görülen ham contact iBeacon sayısı (guard öncesi).
+  final int contactRawSeen;
 
   final DateTime? currentSessionStart;
 
@@ -128,6 +130,7 @@ class BeaconState {
     this.contactAdvertising = false,
     this.contactScanning = false,
     this.contactError,
+    this.contactRawSeen = 0,
     this.authorizationStatus,
     this.bluetoothState,
     this.target,
@@ -168,6 +171,7 @@ class BeaconState {
     bool? contactAdvertising,
     bool? contactScanning,
     Object? contactError = clearValue,
+    int? contactRawSeen,
     AuthorizationStatus? authorizationStatus,
     BluetoothState? bluetoothState,
     List<MonitoringResult>? monitoringResults,
@@ -191,6 +195,7 @@ class BeaconState {
       contactAdvertising: contactAdvertising ?? this.contactAdvertising,
       contactScanning: contactScanning ?? this.contactScanning,
       contactError: identical(contactError, clearValue) ? this.contactError : contactError as String?,
+      contactRawSeen: contactRawSeen ?? this.contactRawSeen,
       authorizationStatus: authorizationStatus ?? this.authorizationStatus,
       bluetoothState: bluetoothState ?? this.bluetoothState,
       monitoringResults: monitoringResults ?? this.monitoringResults,
@@ -249,6 +254,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   // planda contact YOK"). Bu flag ile iOS'ta yalnızca ön planda contact
   // event işlenir. Android'de arka plan contact SCOPE İÇİNDE → her zaman true.
   bool _appInForeground = true;
+  // TEŞHİS: ranging'de contact UUID iBeacon ham görülme sayısı (guard öncesi).
+  // UI'da "Ham temas sinyali: N" olarak gösterilir — cross-platform contact
+  // sorununda hangi katmanın sustuğunu (yayın yok mu / guard mı) ayırt eder.
+  int _contactRawSeen = 0;
   // Self-contact guard: cihazın kendi iBeacon yayınını ranging'de görmesi
   // halinde (bazı Android cihazlar kendi advertisement'ını tarar) kendisiyle
   // "contact" kaydı oluşturmasını engeller. initSdk'da kendi deviceId'sinden
@@ -1074,6 +1083,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             // R4: iOS'ta yalnızca ön planda işle (_appInForeground); arka
             // planda Always izniyle gelen contact iBeacon'ları sayma → scope.
             if (uuid == contactUuidUpper) {
+              // TEŞHİS: guard'lardan ÖNCE ham görülme sayacı. UI'da gösterilir.
+              // >0 ise iPhone ranging Android iBeacon'unu GÖRÜYOR demek; encounter
+              // yine de oluşmuyorsa sorun guard'larda. 0 ise hiç görülmüyor
+              // (Android yaymıyor / region sorunu).
+              _contactRawSeen++;
               if (_contactEnabledCache && _appInForeground) {
                 _lastBeaconActivity = now;
                 _onContactBeacon(major, minor, raw, now);
@@ -1329,6 +1343,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             trilaterationY: trilaterationY,
             positionSource: positionSource,
             currentSessionStart: newSessionStart,
+            contactRawSeen: _contactRawSeen, // teşhis sayacı
           );
         },
         onError: (Object e, StackTrace st) {
