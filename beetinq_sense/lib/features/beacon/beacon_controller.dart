@@ -308,7 +308,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     return BeaconState.initial();
   }
 
+  // Parametre bilerek `lifecycle` — `state` olsaydı Notifier'ın `state`
+  // getter'ını gölgeler ve metot içindeki state.detectedLocation vb. bozulur.
   @override
+  // ignore: avoid_renaming_method_parameters
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
