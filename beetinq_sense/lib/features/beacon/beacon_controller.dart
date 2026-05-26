@@ -291,6 +291,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       _rangingWatchdogTimer = null;
       _syncTimer?.cancel();
       _syncTimer = null;
+      // BUG FIX (Mobil R7): _scanPowerTimer onDispose'da temizlenmiyordu →
+      // provider dispose/hot-reload sonrası orphan timer tick atıp dispose'lu
+      // notifier'a erişmeye çalışıyordu.
+      _scanPowerTimer?.cancel();
+      _scanPowerTimer = null;
       _rangingSub?.cancel();
       _rangingSub = null;
       _monitoringSub?.cancel();

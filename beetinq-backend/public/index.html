@@ -1169,6 +1169,17 @@
     // ─────────────────────────────────────────────────────────────────────
     let pollTimer = setInterval(loadAll, 5000);
     function setPoll(ms) { clearInterval(pollTimer); pollTimer = setInterval(loadAll, ms); }
+
+    // BUG FIX (panel flicker): 2 telefon aktifken backend saniyede birkaç
+    // "data-changed" yayınlayabilir (her visit/contact + 60sn re-report'lar).
+    // Her birinde tam loadAll (11 fetch + 6 chart yeniden çizim) → panel
+    // titrer. Debounce ile art arda gelen event'leri tek loadAll'da topla.
+    let _wsDebounce = null;
+    function loadAllDebounced() {
+      clearTimeout(_wsDebounce);
+      _wsDebounce = setTimeout(loadAll, 800);
+    }
+
     const wsBadge = document.getElementById('wsStatus');
     try {
       const socket = io({ transports: ['websocket', 'polling'] });
@@ -1176,7 +1187,7 @@
         if (wsBadge) { wsBadge.textContent = '● canlı (WS)'; wsBadge.style.color = '#22c55e'; }
         setPoll(30000); // WS varken seyrek güvenlik polling yeterli
       });
-      socket.on('data-changed', () => loadAll());
+      socket.on('data-changed', () => loadAllDebounced());
       socket.on('disconnect', () => {
         if (wsBadge) { wsBadge.textContent = '○ polling'; wsBadge.style.color = '#888'; }
         setPoll(5000); // WS koptu → sık polling fallback
