@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ServiceUnavailableException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -10,6 +11,7 @@ import * as crypto from 'crypto';
 import { CreateVisitDto } from './dto/create-visit.dto';
 import { Visit } from './visit.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { WipeStateService } from '../common/wipe-state.service';
 
 @Injectable()
 export class VisitsService {
@@ -19,9 +21,19 @@ export class VisitsService {
     @InjectRepository(Visit)
     private visitsRepository: Repository<Visit>,
     private readonly events: EventsGateway,
+    private readonly wipeState: WipeStateService,
   ) {}
 
   async create(dto: CreateVisitDto) {
+    // Wipe yarış koruması (R4): tablolar temizlenirken gelen kayıt orphan
+    // bırakmasın. Mobil idempotent retry yaptığı için 503 alan kayıt birkaç
+    // saniye sonra tekrar gelir, veri kaybı yok.
+    if (this.wipeState.isWiping) {
+      throw new ServiceUnavailableException(
+        'Sunucu sıfırlanıyor, lütfen birazdan tekrar deneyin',
+      );
+    }
+
     const enteredAt = new Date(dto.enteredAt);
     const exitedAt = new Date(dto.exitedAt);
 

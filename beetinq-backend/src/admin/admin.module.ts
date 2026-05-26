@@ -8,10 +8,12 @@ import { Stand } from '../stands/stand.entity';
 import { Beacon } from '../beacons/beacon.entity';
 import { ContactEvent } from '../contacts/contact-event.entity';
 import { Fingerprint } from '../fingerprints/fingerprint.entity';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Visit, Stand, Beacon, ContactEvent, Fingerprint]),
+    CommonModule,
   ],
   controllers: [AdminController],
   providers: [AdminService],

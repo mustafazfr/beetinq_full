@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import * as fs from 'fs';
+import * as path from 'path';
 
 import { Visit } from '../visits/visit.entity';
 import { Stand } from '../stands/stand.entity';
 import { Beacon } from '../beacons/beacon.entity';
 import { ContactEvent } from '../contacts/contact-event.entity';
 import { Fingerprint } from '../fingerprints/fingerprint.entity';
+import { WipeStateService } from '../common/wipe-state.service';
 
 /**
  * Test/demo arası "tüm veriyi sıfırla" — visit + contact + stand + beacon
@@ -26,25 +29,57 @@ export class AdminService {
     private contacts: Repository<ContactEvent>,
     @InjectRepository(Fingerprint)
     private fingerprints: Repository<Fingerprint>,
-  ) {}
+    private readonly wipeState: WipeStateService,
+  ) {
+    this.deviceResetEpoch = this.loadEpoch();
+  }
 
   /**
-   * Uzaktan cihaz sıfırlama epoch'u (in-memory, ms timestamp). Panelden
-   * "telefonları da sıfırla" seçilince Date.now() ile ilerletilir. Telefonlar
-   * GET /admin/device-reset-epoch ile sorgular; kendi sakladıkları son
-   * epoch'tan büyükse yerel verilerini (fingerprint, oturum, kuyruk) sıfırlar.
+   * Uzaktan cihaz sıfırlama epoch'u (ms timestamp). Panelden "telefonları da
+   * sıfırla" seçilince Date.now() ile ilerletilir. Telefonlar GET
+   * /admin/device-reset-epoch ile sorgular; kendi sakladıkları son epoch'tan
+   * büyükse yerel verilerini (fingerprint, oturum, kuyruk) sıfırlar.
    *
-   * Kalıcı saklamaya gerek yok: restart'ta 0'a döner, telefon kendi (daha
-   * büyük) epoch'u ile karşılaştırınca wipe etmez. Date.now() monoton arttığı
-   * için yeni wipe her zaman telefon epoch'unu aşar.
+   * BUG FIX (Backend R9): Eskiden in-memory idi → backend restart'ta 0'a
+   * dönüyordu. DB silinip yeniden kurulduğu (database.sqlite reset) bir
+   * senaryoda telefonlar eski verilerini kullanmaya devam ediyordu. Artık
+   * dosyaya (data/device-reset-epoch) kalıcı yazılıp restart'ta okunuyor.
    */
   private deviceResetEpoch = 0;
+
+  private get epochFilePath(): string {
+    // database.sqlite ile aynı dizinde tut (proje kökü).
+    return path.join(process.cwd(), 'data', 'device-reset-epoch');
+  }
+
+  private loadEpoch(): number {
+    try {
+      const raw = fs.readFileSync(this.epochFilePath, 'utf8').trim();
+      const v = parseInt(raw, 10);
+      return Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0; // dosya yok → ilk kurulum
+    }
+  }
+
+  private saveEpoch(epoch: number): void {
+    try {
+      fs.mkdirSync(path.dirname(this.epochFilePath), { recursive: true });
+      fs.writeFileSync(this.epochFilePath, String(epoch), 'utf8');
+    } catch (e) {
+      this.logger.warn(`Epoch dosyaya yazılamadı: ${e}`);
+    }
+  }
 
   getDeviceResetEpoch(): number {
     return this.deviceResetEpoch;
   }
 
   async wipeAll(resetDevices = false) {
+    // Wipe yarış koruması (R4): clear'lar sürerken gelen POST'ları guard'lar
+    // 503 ile reddetsin → wipe sonrası orphan kayıt kalmasın.
+    this.wipeState.beginWipe();
+
     // clear() TRUNCATE benzeri — tüm satırları siler.
     // Sırada önemli: foreign key olan tablo önce (Beacon → Stand'a bağlı).
     const visitCount = await this.visits.count();
@@ -60,9 +95,11 @@ export class AdminService {
     await this.fingerprints.clear();
 
     // Telefonlar da sıfırlanacaksa epoch'u ilerlet → bağlı cihazlar bir
-    // sonraki sync'te bunu görüp kendi yerel verilerini silecek.
+    // sonraki sync'te bunu görüp kendi yerel verilerini silecek. Kalıcı yaz
+    // (restart sonrası korunsun).
     if (resetDevices) {
       this.deviceResetEpoch = Date.now();
+      this.saveEpoch(this.deviceResetEpoch);
     }
 
     this.logger.warn(

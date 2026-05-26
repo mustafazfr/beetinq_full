@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ServiceUnavailableException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -6,6 +11,7 @@ import * as crypto from 'crypto';
 import { CreateContactEventDto } from './dto/create-contact-event.dto';
 import { ContactEvent } from './contact-event.entity';
 import { EventsGateway } from '../events/events.gateway';
+import { WipeStateService } from '../common/wipe-state.service';
 
 @Injectable()
 export class ContactsService {
@@ -15,9 +21,17 @@ export class ContactsService {
     @InjectRepository(ContactEvent)
     private contactsRepository: Repository<ContactEvent>,
     private readonly events: EventsGateway,
+    private readonly wipeState: WipeStateService,
   ) {}
 
   async create(dto: CreateContactEventDto) {
+    // Wipe yarış koruması (R4) — visit ile aynı.
+    if (this.wipeState.isWiping) {
+      throw new ServiceUnavailableException(
+        'Sunucu sıfırlanıyor, lütfen birazdan tekrar deneyin',
+      );
+    }
+
     const firstSeenAt = new Date(dto.firstSeenAt);
     const lastSeenAt = new Date(dto.lastSeenAt);
 
