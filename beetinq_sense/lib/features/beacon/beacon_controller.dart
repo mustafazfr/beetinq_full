@@ -976,6 +976,15 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             final int minor = b.minor;
             final int raw = b.rssi;
 
+            // BUG FIX (iOS sinyal kalitesi): iOS CoreLocation, beacon'u gördüğü
+            // ama o döngüde sinyal gücünü ölçemediği durumda rssi=0 döndürür
+            // (bazen pozitif de). BLE RSSI her zaman NEGATİFtir (-1..-100).
+            // Bu geçersiz okumalar median+Kalman filtresine girerse 0 dBm "çok
+            // güçlü sinyal" gibi algılanıp filtreyi bozuyor → fingerprint/
+            // trilaterasyon yanlışlanıyor (Android'de görülmez, hep negatif).
+            // Geçersiz okumayı tüm akış için (target + contact) atla.
+            if (raw >= 0) continue;
+
             // Contact tracing UUID'si: _rows'a düşmez, ayrı akışa gider.
             // (Aggregation Task 1.5.5'te ContactController'da yapılacak.)
             // R4: iOS'ta yalnızca ön planda işle (_appInForeground); arka
@@ -1750,11 +1759,17 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   }
 
   void _updateLifecycleAndEvict(DateTime now) {
-    const activeMs = 2000;
-    const evictMs = 8000;
+    // iOS CoreLocation ~1Hz ranges ama geçersiz (rssi=0) okumalar atlandıktan
+    // sonra geçerli okuma pratikte ~5sn'de bir gelebiliyor. activeMs=2000 ise
+    // beacon okumalar arası "stale" olup fingerprint match'ten düşüyordu (KNN
+    // sadece active beacon kullanır) → iOS'ta konum tutmuyordu. iOS'ta pencereyi
+    // genişlet ki yavaş okumalar arası beacon'lar "active" kalsın. Android hızlı
+    // okuduğu için (~300ms) tuned 2sn değerine DOKUNULMAZ.
+    final activeMs = Platform.isIOS ? 6000 : 2000;
+    final evictMs = Platform.isIOS ? 12000 : 8000;
 
-    final activeCutoff = now.subtract(const Duration(milliseconds: activeMs));
-    final evictCutoff = now.subtract(const Duration(milliseconds: evictMs));
+    final activeCutoff = now.subtract(Duration(milliseconds: activeMs));
+    final evictCutoff = now.subtract(Duration(milliseconds: evictMs));
 
     final keysToRemove = <String>[];
 
