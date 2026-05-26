@@ -1477,9 +1477,22 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     // Fire-and-forget: fingerprint UX'ini bekletmemek için unawaited.
     unawaited(_registerStandFromFingerprint(name));
     // RSSI parmak izini de backend'e gönder → diğer cihazlar indirip kullanır
-    // (radio map paylaşımı). Stand ismi zaten registerStand ile gitti; bu ek
-    // olarak rssiMap'i taşır.
-    unawaited(_pushFingerprintToBackend(fp));
+    // (radio map paylaşımı).
+    //
+    // BUG FIX (Mobil R2): Eskiden orijinal `fp` (base isim, suffix YOK)
+    // push ediliyordu. Ama engine aynı base'e ikinci kayıt gelince mevcut
+    // kaydı "#1"e çevirip yenisini "#2" yapıyor. Base isim push edilince
+    // backend suffix'siz kayıtlar tutuyor, sonraki sync lokaldeki "#1/#2"yi
+    // suffix'siz isimle ezip listede iki özdeş isim bırakıyordu. Çözüm: aynı
+    // base'e ait TÜM engine kayıtlarını (güncel suffix'li isimleriyle) push et
+    // → backend ile lokal isimler tutarlı kalır. Push upsert (id bazlı).
+    final baseName = name.replaceAll(RegExp(r'\s*#\d+$'), '');
+    final toPush = fingerprintEngine.knownFingerprints
+        .where((f) => f.name.replaceAll(RegExp(r'\s*#\d+$'), '') == baseName)
+        .toList();
+    for (final f in toPush) {
+      unawaited(_pushFingerprintToBackend(f));
+    }
     return true;
   }
 
