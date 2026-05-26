@@ -44,7 +44,9 @@
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .map-wrap { position: relative; }
-    canvas { display: block; }
+    /* touch-action: none → dokunmatik/tablet'te sürükleme tarayıcı scroll'una
+       kapılmasın (Bug R3, harita drag-drop). */
+    canvas { display: block; touch-action: none; }
     #heatmap { border: 1px solid #2a2a2a; border-radius: 8px; cursor: crosshair; }
 
     .dwell-item {
@@ -651,15 +653,13 @@
 
     // Tarih/saat okunur format. Aynı gün ise sadece HH:MM:SS; farklı gün ise
     // gün-ay da eklenir (örn "24 May 19:01:52"). ISO string parse edilir.
+    // BUG FIX (R15): Eskiden "aynı gün" ise sadece saat gösteriliyordu →
+    // geceyarısı civarı kayıtlarda "dün mü bugün mü" belirsizdi (sabah ekibi
+    // logu açınca). Her zaman kısa tarih + saat göster → tek format, net.
     function fmtTime(iso) {
       const d = new Date(iso);
       const t = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const today = new Date();
-      const sameDay = d.getFullYear() === today.getFullYear()
-        && d.getMonth() === today.getMonth()
-        && d.getDate() === today.getDate();
-      if (sameDay) return t;
-      const dm = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+      const dm = d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
       return `${dm} ${t}`;
     }
 
@@ -828,6 +828,10 @@
     // ─────────────────────────────────────────────────────────────────────
     Chart.defaults.color = '#888';
     Chart.defaults.borderColor = '#2a2a2a';
+    // BUG FIX (R11): loadAll sık tetiklendiği (WS push + polling) için her
+    // render'da 600ms animasyon "titreme" yaratıyordu. Animasyonu kapat →
+    // grafikler anında güncellenir, flicker yok.
+    Chart.defaults.animation = false;
     Chart.defaults.font.size = 11;
 
     function renderHourly() {
@@ -1017,7 +1021,9 @@
     // yordu. Yeni: tüm hit-test adaylarını tek listede topla, mesafeye göre
     // en yakın olanı seç. Eşitlikte stand'a öncelik ver (admin'in genelde
     // sürüklediği obje stand; beacon'lar zaten konumda).
-    canvas.addEventListener('mousedown', (e) => {
+    // BUG FIX (R3): mouse* yerine pointer* → mouse + dokunmatik + kalem tek
+    // API'da. Tablet/telefon tarayıcısında harita sürüklenebilir.
+    canvas.addEventListener('pointerdown', (e) => {
       const rect = canvas.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
@@ -1044,7 +1050,7 @@
       canvas.style.cursor = 'grabbing';
     });
 
-    canvas.addEventListener('mousemove', (e) => {
+    canvas.addEventListener('pointermove', (e) => {
       if (!dragging) return;
       const rect = canvas.getBoundingClientRect();
       const px = e.clientX - rect.left;
@@ -1059,7 +1065,7 @@
       draw();
     });
 
-    window.addEventListener('mouseup', async () => {
+    window.addEventListener('pointerup', async () => {
       if (!dragging) return;
       const { kind, ref } = dragging;
       dragging = null;
