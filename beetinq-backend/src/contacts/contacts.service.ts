@@ -27,6 +27,14 @@ export class ContactsService {
       );
     }
 
+    // BUG FIX (Backend R6): Gelecek tarihli sahte temas reddi (visit ile aynı).
+    const futureLimit = Date.now() + 5 * 60 * 1000;
+    if (lastSeenAt.getTime() > futureLimit || firstSeenAt.getTime() > futureLimit) {
+      throw new BadRequestException(
+        'Gelecek tarihli temas kabul edilmiyor (cihaz saati hatalı olabilir)',
+      );
+    }
+
     // Sanity: durationSeconds zamanlarla tutarlı olmalı (10 sn tolerans)
     const computed = Math.round(
       (lastSeenAt.getTime() - firstSeenAt.getTime()) / 1000,

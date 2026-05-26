@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -48,7 +48,13 @@ export class FingerprintsService {
   }
 
   async remove(id: string) {
-    await this.repo.delete(id);
+    // BUG FIX (Backend R8): 0 satır etkilenirse 404 at (Stand/Beacon ile
+    // tutarlı). Eskiden var olmayan id'de bile {success:true} dönüyordu →
+    // panel "silindi" der ama gerçekte silmez (silent no-op).
+    const res = await this.repo.delete(id);
+    if (!res.affected) {
+      throw new NotFoundException(`id=${id} fingerprint bulunamadı`);
+    }
     return { success: true };
   }
 }

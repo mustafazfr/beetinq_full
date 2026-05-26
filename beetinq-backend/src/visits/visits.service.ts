@@ -32,6 +32,17 @@ export class VisitsService {
       );
     }
 
+    // BUG FIX (Backend R6): Gelecek tarihli sahte veri reddi. Cihaz saati
+    // ileri ayarlıysa enteredAt="2099-..." gelir; retention cron'u (now-14gün)
+    // bunu asla silemez → kalıcı çöp + "active now" sayacı sürekli şişer.
+    // 5 dk client clock skew toleransı.
+    const futureLimit = Date.now() + 5 * 60 * 1000;
+    if (exitedAt.getTime() > futureLimit || enteredAt.getTime() > futureLimit) {
+      throw new BadRequestException(
+        'Gelecek tarihli ziyaret kabul edilmiyor (cihaz saati hatalı olabilir)',
+      );
+    }
+
     // Sanity: durationSeconds ile zamanlar arası fark tutarlı mı
     // (mobil kendi hesaplıyor, 10 sn tolerans veriyoruz)
     const computed = Math.round(
