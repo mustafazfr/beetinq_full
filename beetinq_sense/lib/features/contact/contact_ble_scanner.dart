@@ -35,12 +35,6 @@ class ContactBleScanner {
   String? _selfAnonId; // Kendi yayınımızı görürsek atlayalım.
   bool _contactEnabledCache = true;
 
-  // TEŞHİS: scan'in gerçekten çalışıp çalışmadığını + Beetinq cihazlarını
-  // görüp görmediğini log'dan anlamak için sayaçlar.
-  int _rawSeen = 0;        // toplam görülen BLE advertisement
-  int _beetinqSeen = 0;    // Beetinq prefix'li service UUID eşleşmesi
-  Timer? _diagTimer;
-
   /// Settings opt-out toggle anında [contactEnabled] gönderir; sonraki scan
   /// event'leri controller'a düşürülmeden filtrelenir.
   void setContactEnabledCache(bool enabled) {
@@ -106,7 +100,6 @@ class ContactBleScanner {
           if (!_contactEnabledCache) return;
           final now = DateTime.now();
           for (final r in results) {
-            _rawSeen++;
             final adv = r.advertisementData;
             // CROSS-PLATFORM: anonId artık service UUID'ye gömülü (hem iOS hem
             // Android aynı yayını yapıyor). Yayınlanan service UUID'lerde
@@ -114,20 +107,12 @@ class ContactBleScanner {
             // geriye uyum için kontrol edilir.)
             String? anonId;
             for (final g in adv.serviceUuids) {
-              final s = g.str.toLowerCase();
-              // TEŞHİS: Beetinq UUID'sinin ilk 8 hex'iyle başlayan ama decode
-              // edilemeyen UUID'leri logla → karşı cihaz görülüyor mu / format
-              // doğru mu ayırt et.
-              if (s.startsWith('dbb2d4ff')) {
-                debugPrint('$_logTag 🔎 beetinq-benzeri UUID: $s rssi=${r.rssi} advName="${adv.advName}"');
-              }
               final decoded = decodeServiceUuidToAnonId(g.str);
               if (decoded != null) { anonId = decoded; break; }
             }
             // Geriye uyum: eski sürüm localName "BTQ-..." yaymışsa onu da yakala.
             anonId ??= decodeLocalNameToAnonId(adv.advName);
             if (anonId == null) continue;
-            _beetinqSeen++;
             // Self-skip — kendi yayınımızı sayma.
             if (_selfAnonId != null && anonId == _selfAnonId) continue;
             // RSSI sanity (BLE -100..-1 dBm).
@@ -152,13 +137,6 @@ class ContactBleScanner {
 
       _running = true;
       debugPrint('$_logTag başladı (self=$_selfAnonId)');
-      // TEŞHİS: 5sn'de bir tarama özetini logla → iPhone Android'i görüyor mu?
-      _diagTimer?.cancel();
-      _diagTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-        debugPrint('$_logTag 📊 tarama: toplam_cihaz=$_rawSeen '
-            'beetinq_eşleşme=$_beetinqSeen self=$_selfAnonId '
-            'scanning=${FlutterBluePlus.isScanningNow}');
-      });
       return true;
     } catch (e, st) {
       debugPrint('$_logTag start hatası: $e\n$st');
@@ -169,8 +147,6 @@ class ContactBleScanner {
 
   Future<void> stop() async {
     if (!_running) return;
-    _diagTimer?.cancel();
-    _diagTimer = null;
     await _safeStopScan();
     await _sub?.cancel();
     _sub = null;

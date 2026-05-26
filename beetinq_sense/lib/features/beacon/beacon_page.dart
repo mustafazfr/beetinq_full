@@ -215,21 +215,6 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                                 ),
                               ),
                             _StatusRow(label: 'Temas Taraması', ok: state.contactScanning),
-                            // TEŞHİS: ranging'de görülen ham contact iBeacon sayısı.
-                            // >0 → karşı cihazın iBeacon yayını GÖRÜLÜYOR (sorun varsa
-                            // guard/eşikte). 0 → hiç görülmüyor (karşı yaymıyor / region).
-                            Padding(
-                              padding: const EdgeInsets.only(left: 20, top: 2),
-                              child: Text(
-                                'Ham temas sinyali (ranging): ${state.contactRawSeen}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: state.contactRawSeen > 0
-                                      ? Colors.green
-                                      : Colors.grey,
-                                ),
-                              ),
-                            ),
                           ],
                         ),
                         if (state.initialized)
