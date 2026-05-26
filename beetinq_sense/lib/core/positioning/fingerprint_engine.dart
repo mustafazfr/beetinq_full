@@ -125,66 +125,64 @@ class FingerprintEngine {
   /// İyileştirme: önceki version eşit oy bazlı majority vote yapıyordu;
   /// yakın aday ile uzak aday eşit söz hakkına sahipti. Sentetik testte
   /// 1m aralıklı noktalarda %66 → ~%80+ accuracy hedefi.
-  FingerprintMatch? findNearestMatch(Map<String, int> currentScan, {double threshold = 15.0, int k = 3}) {
+  FingerprintMatch? findNearestMatch(
+    Map<String, int> currentScan, {
+    double threshold = 15.0,
+    int k = 3,
+    String? currentLocation,
+    double stickyMargin = 2.0,
+  }) {
     if (_knownFingerprints.isEmpty) return null;
 
-    // 1. Tüm mesafeleri hesapla ve sırala
-    final candidates = _knownFingerprints
-        .map((fp) => FingerprintMatch(
-      fingerprint: fp,
-      score: _calculateEuclideanDistance(currentScan, fp.rssiMap),
-    ))
-        .where((m) => m.score <= threshold) // Threshold dışındakileri ele
+    // PER-LOCATION BEST (snapshot-count bias fix):
+    // Eskiden global top-K aday alınıp weighted vote yapılıyordu. Sorun:
+    // bir stand çok kez kaydedilmişse (örn. "kapı" 8 snapshot) top-K'yı
+    // onun kopyaları dolduruyor, az kaydedilen stand (örn. "arkakoltuk" 1
+    // snapshot) hiç kazanamıyordu → "her yerde cam/kapı" bias'ı.
+    //
+    // Çözüm: her KONUM (base ad) kendi EN İYİ (min mesafe) snapshot'ıyla
+    // temsil edilir; konumlar arasında en düşük mesafeli kazanır. Böylece
+    // her stand snapshot sayısından bağımsız, adil yarışır (1-NN per location).
+    final Map<String, FingerprintMatch> bestPerLocation = {};
+    for (final fp in _knownFingerprints) {
+      final name = fp.name.replaceAll(RegExp(r'\s*#\d+$'), '');
+      final score = _calculateEuclideanDistance(currentScan, fp.rssiMap);
+      final existing = bestPerLocation[name];
+      if (existing == null || score < existing.score) {
+        bestPerLocation[name] = FingerprintMatch(fingerprint: fp, score: score);
+      }
+    }
+
+    // Threshold altı konumları sırala (en yakın önce).
+    final ranked = bestPerLocation.values
+        .where((m) => m.score <= threshold)
         .toList()
       ..sort((a, b) => a.score.compareTo(b.score));
 
-    if (candidates.isEmpty) return null;
+    if (ranked.isEmpty) return null;
 
-    // 2. En yakın K tanesini al (K'dan az aday varsa hepsini al)
-    final topK = candidates.take(k).toList();
+    var winner = ranked.first;
 
-    // 3. Inverse-distance weighted voting: w = 1/(score+ε).
-    // ε=0.5 → score=0 olduğunda ağırlık 2 (tam dominasyon değil).
-    const epsilon = 0.5;
-    final Map<String, double> weightedVotes = {};
-    final Map<String, int> rawVoteCount = {};
-    final Map<String, double> totalScores = {};
-
-    for (final m in topK) {
-      // "#1", "#2" gibi suffix'leri soy — voting için base adı kullan.
-      final name = m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '');
-      final w = 1.0 / (m.score + epsilon);
-      weightedVotes[name] = (weightedVotes[name] ?? 0) + w;
-      rawVoteCount[name] = (rawVoteCount[name] ?? 0) + 1;
-      totalScores[name] = (totalScores[name] ?? 0) + m.score;
+    // STICKINESS (zıplama önleme): İki stand neredeyse eşit mesafedeyse her
+    // tarama winner'ı değiştirip "bir cam bir kapı" flicker'ı yaratır. Mevcut
+    // konum hâlâ aday VE en iyiye [stickyMargin] kadar yakınsa, konumu KORU.
+    if (currentLocation != null) {
+      final curBase = currentLocation.replaceAll(RegExp(r'\s*#\d+$'), '');
+      for (final m in ranked) {
+        final mBase = m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '');
+        if (mBase == curBase && m.score <= winner.score + stickyMargin) {
+          winner = m; // mevcut konuma yapış
+          break;
+        }
+      }
     }
 
-    // En yüksek ağırlık toplamı kazanır; ağırlık eşitliğinde düşük toplam skor.
-    String? winner;
-    double maxWeight = -1;
-    double winnerScore = double.infinity;
-
-    weightedVotes.forEach((name, weight) {
-      final score = totalScores[name] ?? 0;
-      if (weight > maxWeight ||
-          (weight == maxWeight && score < winnerScore)) {
-        winner = name;
-        maxWeight = weight;
-        winnerScore = score;
-      }
-    });
-
-    if (winner == null) return null;
-
-    // Kazanan konumun en iyi (en düşük skorlu) fingerprint'ini döndür.
-    final best = topK.firstWhere(
-          (m) => m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '') == winner,
-    );
     return FingerprintMatch(
-      fingerprint: best.fingerprint,
-      score: best.score,
-      voteCount: rawVoteCount[winner] ?? 1,
-      k: topK.length,
+      fingerprint: winner.fingerprint,
+      score: winner.score,
+      voteCount: 1,
+      // k = değerlendirilen KONUM sayısı (log/debug için).
+      k: ranked.length,
     );
   }
 

@@ -1075,7 +1075,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             }
           }
 
-          final match = fingerprintEngine.findNearestMatch(currentFingerprint, threshold: 15.0);
+          final match = fingerprintEngine.findNearestMatch(
+            currentFingerprint,
+            threshold: 15.0,
+            // Mevcut konuma yapışkanlık → near-tie flicker'ı azaltır.
+            currentLocation: state.detectedLocation,
+          );
 
           if (match != null) {
             bestMatchName = match.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '');
