@@ -313,9 +313,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Saha günü WiFi/hotspot değişirse "Otomatik Bul" butonuna '
-                          'bas veya buraya yeni IP/URL yaz. Boş bırakırsan uygulama '
-                          'varsayılan adrese (geliştirici LAN IP\'si) düşer.',
+                          'Ağ değiştiğinde "Otomatik Bul" ile sunucuyu bulabilir '
+                          'veya IP/URL\'yi elle girebilirsin. Boş bırakırsan '
+                          'varsayılan sunucu adresi kullanılır.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.blue.shade900,
@@ -431,8 +431,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                                 ? 'Uygulama pil optimizasyonundan muaf. Arka plan tarama '
                                     'kesintisiz çalışır.'
                                 : 'Bazı cihazlar (Xiaomi, Huawei, Samsung) pil optimizasyonu '
-                                    'açıkken arka plan tarayıcıyı sessizce öldürür. Saha '
-                                    'günü kesintisiz tarama için muafiyet ver.',
+                                    'açıkken arka plan tarayıcıyı sessizce öldürür. '
+                                    'Kesintisiz tarama için muafiyet ver.',
                             style: TextStyle(
                               fontSize: 12,
                               color: _batteryWhitelisted == true
@@ -468,8 +468,8 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     child: Center(child: LinearProgressIndicator()),
                   ),
 
-                // ── Test Araçları ──────────────────────────────────────
-                const _SectionHeader('Test Araçları'),
+                // ── Verileri Sıfırla ───────────────────────────────────
+                const _SectionHeader('Verileri Sıfırla'),
                 Card(
                   margin: const EdgeInsets.symmetric(horizontal: 12),
                   color: Colors.red.shade50,
@@ -479,7 +479,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Tüm test verisini sil',
+                          'Tüm verileri sıfırla',
                           style: TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.red.shade900,
@@ -487,9 +487,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          'Bu telefondaki: kayıtlı UUID, fingerprint snapshot\'ları, '
-                          'beacon koordinatları, aktif session, offline kuyruklar.\n'
-                          'Sunucudaki: tüm visit, contact, stand, beacon kayıtları.\n\n'
+                          'Bu telefondaki kayıtlı konumlar, beacon koordinatları, '
+                          'aktif oturum ve bekleyen kayıtlar ile sunucudaki tüm '
+                          'ziyaret, temas, stand ve beacon kayıtları silinir.\n\n'
                           'Geri alınamaz.',
                           style: TextStyle(
                             fontSize: 12,
@@ -525,7 +525,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Emin misin?'),
         content: const Text(
-          'Telefon ve sunucudaki tüm test verileri silinecek. '
+          'Telefon ve sunucudaki tüm veriler silinecek. '
           'Bu işlem GERİ ALINAMAZ.',
         ),
         actions: [
