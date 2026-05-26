@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:dchs_flutter_beacon/dchs_flutter_beacon.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:uuid/uuid.dart';
 
 import '../../core/contact/contact_config.dart';
 import '../../core/filters/rssi_filter.dart';
@@ -210,6 +211,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   static const double _swapHysteresisDb = 3.0;
 
   bool _initInProgress = false;
+  // BUG FIX (Mobil R6): initSdk sürerken (yavaş cihaz, ilk açılış) Bluetooth
+  // toggle veya izin değişimi listener'ı tekrar initSdk çağırırsa eski kod
+  // sessizce no-op dönüyordu → SDK yarı-init durumda donabiliyordu. Bu flag,
+  // "init sürerken bir reinit isteği geldi" durumunu kaydeder; mevcut init
+  // bitince finally bloğu bir kez daha initSdk çalıştırır.
+  bool _pendingReinit = false;
 
   // Contact tracing opt-out cache (Task 1.5.8): ranging callback sync
   // olduğu için SharedPreferences'a her event'te async çağrı yerine
@@ -480,7 +487,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
   Future<void> initSdk() async {
     _log('initSdk() tapped');
-    if (_initInProgress) return;
+    if (_initInProgress) {
+      // Halihazırda init çalışıyor — bittiğinde bir kez daha çalışsın (R6).
+      _pendingReinit = true;
+      return;
+    }
     _initInProgress = true;
 
     _statusPollTimer?.cancel();
@@ -764,6 +775,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       state = state.copyWith(error: e.toString());
     } finally {
       _initInProgress = false;
+      // Init sürerken bir reinit isteği geldiyse (R6) şimdi bir kez çalıştır.
+      // Tek seferlik: _pendingReinit sıfırlanır, sonsuz döngü olmaz.
+      if (_pendingReinit) {
+        _pendingReinit = false;
+        _log('🔁 Bekleyen reinit isteği işleniyor');
+        Future(() async => initSdk());
+      }
     }
   }
 
@@ -1463,7 +1481,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
 
     final fp = Fingerprint(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      // BUG FIX (Backend R3): id eskiden millisecondsSinceEpoch idi → iki
+      // cihaz aynı milisaniyede "Konum Kaydet" yaparsa aynı id üretip backend
+      // upsert'inde birbirini eziyordu (sessiz veri kaybı). UUID v4 ile global
+      // benzersiz. Mevcut kayıtlar eski id'lerini korur (migration gerekmez).
+      id: const Uuid().v4(),
       name: name,
       rssiMap: rssiSnapshot,
     );

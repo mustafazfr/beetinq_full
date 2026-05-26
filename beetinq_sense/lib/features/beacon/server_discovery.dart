@@ -76,6 +76,11 @@ class ServerDiscovery {
         for (final addr in iface.addresses) {
           final parts = addr.address.split('.');
           if (parts.length != 4) continue;
+          // BUG FIX (Mobil R12): Yalnızca private LAN subnet'lerini tara.
+          // Android hotspot + cellular paralel açıkken cellular arayüzü de
+          // dönüyordu → 254 ulaşılamaz cellular IP'sine boşa probe (pil/veri/
+          // operatör throttle). Backend her zaman LAN'da → RFC1918 yeterli.
+          if (!_isPrivateSubnet(parts)) continue;
           final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
           // Kendi IP'mizi de listede tutmak zararsız — backend kendine cevap
           // veremezse de doğal akış. Hattı kompleksleştirmeye gerek yok.
@@ -88,6 +93,18 @@ class ServerDiscovery {
       debugPrint('[ServerDiscovery] interface list hatası: $e');
     }
     return candidates.toList();
+  }
+
+  /// RFC1918 private aralık kontrolü: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
+  /// Cellular/public IP'leri eler — backend her zaman aynı LAN'da.
+  static bool _isPrivateSubnet(List<String> parts) {
+    final a = int.tryParse(parts[0]);
+    final b = int.tryParse(parts[1]);
+    if (a == null || b == null) return false;
+    if (a == 10) return true;
+    if (a == 192 && b == 168) return true;
+    if (a == 172 && b >= 16 && b <= 31) return true;
+    return false;
   }
 
   Future<void> _scanChunks(

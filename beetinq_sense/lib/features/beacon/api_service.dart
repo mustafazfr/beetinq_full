@@ -302,15 +302,20 @@ class ApiService {
       final queue = await _loadQueue();
       if (queue.isEmpty) return;
 
-      // STALE DATA TEMİZLEME: 7 günden eski kayıtları sil.
+      // STALE DATA TEMİZLEME: yalnızca PARSE EDİLEBİLEN ve 7 günden eski
+      // kayıtları sil.
+      // BUG FIX (Mobil R15): Eskiden exitedAt null/parse edilemeyen kayıtlar
+      // da sessizce siliniyordu ("veri kaybolmaz" garantisi ihlali). Artık
+      // belirsiz kayıtlar KORUNUR — gönderim denenir; gerçekten bozuksa backend
+      // 400 verir ve poison-pill yolundan loglanarak temizlenir (sessiz değil).
       final cutoff = DateTime.now().subtract(const Duration(days: 7));
       final fresh = queue.where((item) {
         final raw = item['exitedAt'] as String?;
-        if (raw == null) return false;
+        if (raw == null) return true; // belirsiz → koru, gönderimde değerlendir
         try {
           return DateTime.parse(raw).isAfter(cutoff);
         } catch (_) {
-          return false;
+          return true; // parse edilemiyor → koru, silme
         }
       }).toList();
 
