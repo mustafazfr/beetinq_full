@@ -270,13 +270,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   // Watchdog restart'ından (15sn) uzun seçildi ki restart oturumu öldürmesin.
   static const Duration _locationGracePeriod = Duration(seconds: 30);
 
-  // Wipe reconciliation guard (Görev 1): kullanıcı yeni bir konum kaydedince
-  // (saveCurrentFingerprint) bu zaman damgası güncellenir. Backend henüz push'u
-  // almadan periyodik sync "backend boş" görüp yeni kaydı silmesin diye, bu
-  // pencere içindeyken reconcile atlanır. Sadece RAM'de; restart'ta sıfırlanır.
-  DateTime? _lastLocalFingerprintSaveAt;
-  static const Duration _wipeReconcileGrace = Duration(minutes: 2);
-
   // --- Position Engines ---
   final FingerprintEngine fingerprintEngine = FingerprintEngine();
   final TrilaterationEngine trilaterationEngine = TrilaterationEngine();
@@ -1493,10 +1486,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
     await _prefs.saveFingerprints(fingerprintEngine.knownFingerprints);
 
-    // Kasıtlı kayıt — wipe reconcile bu yeni veriyi (push backend'e ulaşana
-    // kadar) silmesin diye grace penceresini başlat.
-    _lastLocalFingerprintSaveAt = DateTime.now();
-
     _log('Fingerprint Kaydedildi: "$name" (${rssiSnapshot.length} beacon ile)');
     state = state.copyWith(knownFingerprints: List.unmodifiable(fingerprintEngine.knownFingerprints));
 
@@ -1613,10 +1602,14 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // null = backend'e ulaşılamadı → lokal veriye dokunma.
       if (raw == null) return;
 
-      if (raw.isEmpty) {
-        await _reconcileWipedBackend();
-        return;
-      }
+      // Backend boş → indirilecek bir şey yok, lokal veriye DOKUNMA.
+      // ÖNEMLİ (regresyon fix'i): Eskiden burada _reconcileWipedBackend ile
+      // tüm yerel fingerprint'ler siliniyordu. Bu, server-only wipe sonrası
+      // (push gecikmesi/başarısızlığı durumunda) kullanıcının kalibrasyonunu
+      // 30sn'lik periyodik sync'te yok ediyordu → "fingerprint hep yanlış".
+      // Telefon fingerprint'in KAYNAĞIDIR; backend sadece paylaşım katmanı.
+      // Kasıtlı tam sıfırlama "Sunucu + Telefonları Sıfırla" ile yapılır.
+      if (raw.isEmpty) return;
       final remote = <Fingerprint>[];
       for (final j in raw) {
         try {
@@ -1641,55 +1634,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       _log('✅ ${remote.length} fingerprint backend\'den indirildi (toplam ${merged.length}).');
     } catch (e) {
       _log('❌ Fingerprint sync hatası: $e');
-    }
-  }
-
-  /// Backend ulaşılabilir ama BOŞ döndüğünde (operatör wipe etti) lokal tarafı
-  /// uzlaştırır: orphan kalan fingerprint'leri ve açık dwell oturumunu temizler
-  /// ki çalışan uygulama eski standı (örn. "asd") otomatik geri basmasın.
-  ///
-  /// Kasıtlı yeni kayıtları korumak için grace penceresi: son
-  /// [_wipeReconcileGrace] içinde "Konum Kaydet" yapıldıysa atla (push henüz
-  /// backend'e ulaşmamış olabilir; bir sonraki tick'te zaten görünür olur).
-  ///
-  /// startDeviceRanging içindeki beacon işleme mantığına DOKUNMAZ — sadece
-  /// fingerprint deposunu ve detectedLocation/session alanlarını sıfırlar.
-  Future<void> _reconcileWipedBackend() async {
-    // Temizlenecek lokal veri yoksa no-op (ilk açılış / zaten temiz).
-    final hasLocalFingerprints = fingerprintEngine.knownFingerprints.isNotEmpty;
-    final hasOpenSession =
-        state.detectedLocation != null || state.currentSessionStart != null;
-    if (!hasLocalFingerprints && !hasOpenSession) return;
-
-    // Grace: kasıtlı yeni kayıt, push backend'e ulaşmadan silinmesin.
-    final lastSave = _lastLocalFingerprintSaveAt;
-    if (lastSave != null &&
-        DateTime.now().difference(lastSave) < _wipeReconcileGrace) {
-      _log('⏳ Backend boş ama yakın zamanda konum kaydedildi — reconcile erteleniyor.');
-      return;
-    }
-
-    _log('🧹 Backend boş (wipe edilmiş) — lokal fingerprint/oturum temizleniyor.');
-
-    // 1) Açık dwell oturumunu DÜŞÜR (göndermeden). Bu oturum silinen standa ait;
-    //    kapanışta sendVisitEvent ile "asd" geri yazılmasını burada engelliyoruz.
-    if (hasOpenSession) {
-      await _prefs.clearCurrentSession();
-      state = state.copyWith(
-        detectedLocation: null,
-        currentSessionStart: null,
-        trilaterationX: null,
-        trilaterationY: null,
-        positionSource: null,
-      );
-      _locationLossCount = 0;
-    }
-
-    // 2) Orphan fingerprint'leri lokalden de sil (engine + disk + state).
-    if (hasLocalFingerprints) {
-      fingerprintEngine.loadFingerprints(const []);
-      await _prefs.saveFingerprints(const []);
-      state = state.copyWith(knownFingerprints: const []);
     }
   }
 
