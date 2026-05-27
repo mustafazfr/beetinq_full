@@ -7,6 +7,7 @@ import PDFDocument from 'pdfkit';
 import { Visit } from '../visits/visit.entity';
 import { Stand } from '../stands/stand.entity';
 import { ContactEvent } from '../contacts/contact-event.entity';
+import { AccuracySample } from '../accuracy/accuracy-sample.entity';
 
 @Injectable()
 export class StatsService {
@@ -17,6 +18,8 @@ export class StatsService {
     private standsRepository: Repository<Stand>,
     @InjectRepository(ContactEvent)
     private contactsRepository: Repository<ContactEvent>,
+    @InjectRepository(AccuracySample)
+    private accuracyRepository: Repository<AccuracySample>,
   ) {}
 
   /** Tarih filtresini query builder'a uygular (varsa). */
@@ -427,6 +430,68 @@ export class StatsService {
     // En yeni üstte.
     result.sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
     return result;
+  }
+
+  /**
+   * Konum doğruluğu özeti — tez accuracy metriği. Kullanıcının saha
+   * ölçümlerinden (AccuracySample) hesaplanır:
+   * - fingerprintAccuracy: fingerprint tahminlerinde isabet yüzdesi.
+   * - meanError / medianError: trilaterasyon hata mesafesi (m), errorMeters
+   *   dolu örnekler üzerinden.
+   * - byLocation: stand bazında isabet (hangi stand zor ayırt ediliyor).
+   */
+  async getAccuracyStats(from?: string, to?: string) {
+    const qb = this.accuracyRepository.createQueryBuilder('a');
+    if (from) qb.andWhere('a.createdAt >= :from', { from: new Date(from) });
+    if (to) qb.andWhere('a.createdAt <= :to', { to: new Date(to) });
+    const rows = await qb.getMany();
+
+    const total = rows.length;
+    const fpRows = rows.filter((r) => r.positionSource === 'fingerprint');
+    const fpCorrect = fpRows.filter((r) => r.correct).length;
+    const errors = rows
+      .map((r) => r.errorMeters)
+      .filter((e): e is number => e != null)
+      .sort((a, b) => a - b);
+
+    const mean =
+      errors.length > 0
+        ? errors.reduce((s, e) => s + e, 0) / errors.length
+        : null;
+    const median =
+      errors.length > 0
+        ? errors.length % 2
+          ? errors[(errors.length - 1) / 2]
+          : (errors[errors.length / 2 - 1] + errors[errors.length / 2]) / 2
+        : null;
+
+    // Stand bazında isabet.
+    const byLoc = new Map<string, { total: number; correct: number }>();
+    for (const r of rows) {
+      const g = byLoc.get(r.groundTruth) ?? { total: 0, correct: 0 };
+      g.total++;
+      if (r.correct) g.correct++;
+      byLoc.set(r.groundTruth, g);
+    }
+
+    return {
+      totalSamples: total,
+      fingerprintSamples: fpRows.length,
+      fingerprintCorrect: fpCorrect,
+      fingerprintAccuracy:
+        fpRows.length > 0 ? Math.round((fpCorrect / fpRows.length) * 100) : null,
+      meanErrorMeters: mean != null ? +mean.toFixed(2) : null,
+      medianErrorMeters: median != null ? +median.toFixed(2) : null,
+      errorSampleCount: errors.length,
+      byLocation: [...byLoc.entries()]
+        .map(([name, g]) => ({
+          name,
+          total: g.total,
+          correct: g.correct,
+          accuracy: Math.round((g.correct / g.total) * 100),
+        }))
+        .sort((a, b) => a.accuracy - b.accuracy), // zayıf üstte
+    };
   }
 
   /**

@@ -5,6 +5,7 @@ import { StatsService } from './stats.service';
 import { Visit } from '../visits/visit.entity';
 import { Stand } from '../stands/stand.entity';
 import { ContactEvent } from '../contacts/contact-event.entity';
+import { AccuracySample } from '../accuracy/accuracy-sample.entity';
 
 /**
  * StatsService.getContactEvents — yön-bağımsız birleştirme. A→B ve B→A aynı
@@ -38,6 +39,7 @@ describe('StatsService.getContactEvents', () => {
         { provide: getRepositoryToken(Visit), useValue: {} },
         { provide: getRepositoryToken(Stand), useValue: {} },
         { provide: getRepositoryToken(ContactEvent), useValue: contactsRepo },
+        { provide: getRepositoryToken(AccuracySample), useValue: {} },
       ],
     }).compile();
     service = module.get(StatsService);

@@ -1486,6 +1486,21 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     await refreshStatus();
   }
 
+  /// Konum doğruluğu testi: kullanıcı gerçek konumu (groundTruth) seçer, o anki
+  /// sistem tahmini yakalanıp backend'e gönderilir. Backend isabet + hata (m)
+  /// hesaplar. Dönüş: {correct, errorMeters} veya null (gönderim hatası).
+  Future<Map<String, dynamic>?> recordAccuracy(String groundTruth) async {
+    final deviceId = await _deviceId.getDeviceId();
+    return _api.sendAccuracySample(
+      deviceId: deviceId,
+      groundTruth: groundTruth,
+      predictedLocation: state.detectedLocation,
+      positionSource: state.positionSource,
+      predictedX: state.trilaterationX,
+      predictedY: state.trilaterationY,
+    );
+  }
+
   Future<bool> saveCurrentFingerprint(String name) async {
     final activeBeacons = state.beacons.where((b) {
       return b.lifecycle == BeaconLifecycle.active && b.filteredRssi > -95;

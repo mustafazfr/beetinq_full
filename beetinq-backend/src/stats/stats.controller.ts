@@ -94,6 +94,12 @@ export class StatsController {
     return this.statsService.getDwellDistribution(q.from, q.to, q.locationName);
   }
 
+  /** Konum doğruluğu özeti (fingerprint isabet %, trilaterasyon median hata). */
+  @Get('accuracy')
+  getAccuracy(@Query() q: StatsQueryDto) {
+    return this.statsService.getAccuracyStats(q.from, q.to);
+  }
+
   /**
    * Etkinlik sonrası analiz raporu PDF (Sia ozeti "etkinlik sonrasi rapor"
    * maddesi). pdfkit ile A4 sayfaya özet + dwell tablosu + kaynak dağılımı

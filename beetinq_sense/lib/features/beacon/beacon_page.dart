@@ -105,6 +105,54 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
               builder: (ctx) => const _FingerprintListSheet(),
             ),
           ),
+          // Konum doğruluğu testi: gerçek konumu seç → sistem tahminiyle
+          // karşılaştır → hata/isabet ölç (tez accuracy metriği).
+          IconButton(
+            icon: const Icon(Icons.my_location),
+            tooltip: 'Doğruluk Testi',
+            onPressed: () async {
+              final names = ctrl.getSavedFingerprints()
+                  .map((fp) => fp.name.replaceAll(RegExp(r'\s*#\d+$'), ''))
+                  .toSet()
+                  .toList()
+                ..sort();
+              if (names.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Önce konum (fingerprint) kaydet.'),
+                ));
+                return;
+              }
+              final truth = await showDialog<String>(
+                context: context,
+                builder: (ctx) => _AccuracyTestDialog(
+                  names: names,
+                  predicted: state.detectedLocation,
+                ),
+              );
+              if (truth == null || !context.mounted) return;
+              final messenger = ScaffoldMessenger.of(context);
+              final r = await ctrl.recordAccuracy(truth);
+              if (!context.mounted) return;
+              if (r == null) {
+                messenger.showSnackBar(const SnackBar(
+                  content: Text('❌ Ölçüm gönderilemedi (sunucu?).'),
+                  backgroundColor: Colors.red,
+                ));
+                return;
+              }
+              final correct = r['correct'] == true;
+              final err = r['errorMeters'];
+              final errStr = err != null
+                  ? ' · hata ${(err as num).toStringAsFixed(2)}m'
+                  : '';
+              messenger.showSnackBar(SnackBar(
+                content: Text(correct
+                    ? '✅ Doğru tahmin: $truth$errStr'
+                    : '❌ Yanlış (tahmin: ${state.detectedLocation ?? "?"})$errStr'),
+                backgroundColor: correct ? Colors.green : Colors.orange,
+              ));
+            },
+          ),
           // Fingerprint kaydet
           IconButton(
             icon: const Icon(Icons.add_location_alt),
@@ -577,6 +625,54 @@ class _FingerprintListSheet extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ── DOĞRULUK TESTİ DİALOĞU ────────────────────────────────────────────────
+// Kullanıcı GERÇEKTE hangi standda olduğunu seçer (ground truth). Sistem o anki
+// tahminini gösterir; seçim sonrası backend isabet + hata hesaplar.
+class _AccuracyTestDialog extends StatelessWidget {
+  final List<String> names;
+  final String? predicted;
+  const _AccuracyTestDialog({required this.names, this.predicted});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Doğruluk Testi'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sistem şu an: ${predicted ?? "konum bulunamadı"}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            const Text('Gerçekte neredesin?',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: names
+                  .map((n) => ActionChip(
+                        label: Text(n),
+                        onPressed: () => Navigator.pop(context, n),
+                      ))
+                  .toList(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, null),
+          child: const Text('İptal'),
+        ),
+      ],
     );
   }
 }

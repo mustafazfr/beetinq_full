@@ -562,6 +562,41 @@ class ApiService {
     }
   }
 
+  /// Konum doğruluğu ölçümü gönderir. Kullanıcı "şu an X standındayım" (ground
+  /// truth) der; o anki sistem tahmini (predictedLocation + trilaterasyon x,y)
+  /// ile karşılaştırılması backend'de yapılır. Dönüş: {correct, errorMeters}
+  /// veya null (hata).
+  Future<Map<String, dynamic>?> sendAccuracySample({
+    required String deviceId,
+    required String groundTruth,
+    String? predictedLocation,
+    String? positionSource,
+    double? predictedX,
+    double? predictedY,
+  }) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$_baseUrl/accuracy'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'deviceId': deviceId,
+              'groundTruth': groundTruth,
+              if (predictedLocation != null) 'predictedLocation': predictedLocation,
+              if (positionSource != null) 'positionSource': positionSource,
+              if (predictedX != null) 'predictedX': predictedX,
+              if (predictedY != null) 'predictedY': predictedY,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+      if (res.statusCode < 200 || res.statusCode >= 300) return null;
+      return jsonDecode(res.body) as Map<String, dynamic>;
+    } catch (e) {
+      debugPrint('❌ [API] Accuracy gönderimi başarısız: $e');
+      return null;
+    }
+  }
+
   /// Backend'e stand kaydet (idempotent: aynı isim varsa onu döndürür).
   /// Mobilden "fingerprint kaydet = stand oluştur" akışı için kullanılır.
   /// x,y null → backend auto-grid pozisyon atar.
