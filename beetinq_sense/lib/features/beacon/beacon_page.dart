@@ -164,12 +164,24 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
               );
 
               if (result != null && result.isNotEmpty && context.mounted) {
+                // 10sn medyan toplama sürerken ilerleme dialog'u göster
+                // (barrierDismissible:false → yanlışlıkla kapatılıp tekrar
+                // "Kaydet"e basılmasın). Toplama bitince aşağıda kapatılır.
+                unawaited(showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (ctx) => const _CalibrationProgressDialog(),
+                ));
                 final success = await ctrl.saveCurrentFingerprint(result);
+                // İlerleme dialog'unu kapat.
+                if (context.mounted) {
+                  Navigator.of(context, rootNavigator: true).pop();
+                }
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text(success
-                          ? '✅ Kaydedildi: $result'
+                          ? '✅ Kaydedildi: $result (10sn medyan)'
                           : '❌ Hata: Yeterli aktif beacon yok!'),
                       backgroundColor: success ? Colors.green : Colors.red,
                     ),
@@ -678,6 +690,34 @@ class _AccuracyTestDialog extends StatelessWidget {
 }
 
 // ── YENİ: KONUM KAYDET (FINGERPRINT) DİALOG PENCERESİ ─────────────────────
+/// Kalibrasyon toplama (10sn medyan) sırasında ilerleme gösterir.
+/// calibrationProgress 0..1 boyunca dolan çubuk; controller toplama bitince
+/// -1'e çeker ve çağıran taraf bu dialog'u kapatır.
+class _CalibrationProgressDialog extends ConsumerWidget {
+  const _CalibrationProgressDialog();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final progress = ref.watch(beaconControllerProvider).calibrationProgress;
+    final pct = progress < 0 ? 0 : (progress * 100).round();
+    return AlertDialog(
+      title: const Text('Kalibrasyon toplanıyor'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          LinearProgressIndicator(value: progress < 0 ? null : progress),
+          const SizedBox(height: 14),
+          Text(
+            '%$pct\n\nSinyal örnekleniyor (~10 sn). Telefonu sabit yükseklikte '
+            'tut, yavaşça etrafında döndür ki tüm yönlerden örnek alınsın.',
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SaveFingerprintDialog extends ConsumerStatefulWidget {
   const _SaveFingerprintDialog();
 

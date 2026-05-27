@@ -118,6 +118,11 @@ class BeaconState {
   final List<BeaconLocation> beaconLocations;
   final List<Fingerprint> knownFingerprints;
 
+  // Kalibrasyon toplama ilerlemesi: -1 = toplama yok (idle), 0.0..1.0 = aktif.
+  // "Konum Kaydet" tek anlık değil ~10sn medyan toplar; UI bu süre boyunca
+  // ilerleme çubuğu gösterir.
+  final double calibrationProgress;
+
   const BeaconState({
     required this.initialized,
     required this.monitoring,
@@ -140,6 +145,7 @@ class BeaconState {
     this.errorType,
     this.beaconLocations = const [],
     this.knownFingerprints = const [],
+    this.calibrationProgress = -1.0,
   });
 
   factory BeaconState.initial() => const BeaconState(
@@ -183,6 +189,7 @@ class BeaconState {
     Object? errorType = clearValue,
     List<BeaconLocation>? beaconLocations,
     List<Fingerprint>? knownFingerprints,
+    double? calibrationProgress,
   }) {
     return BeaconState(
       initialized: initialized ?? this.initialized,
@@ -206,6 +213,7 @@ class BeaconState {
       errorType: identical(errorType, clearValue) ? this.errorType : errorType as String?,
       beaconLocations: beaconLocations ?? this.beaconLocations,
       knownFingerprints: knownFingerprints ?? this.knownFingerprints,
+      calibrationProgress: calibrationProgress ?? this.calibrationProgress,
     );
   }
 }
@@ -1502,19 +1510,61 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   }
 
   Future<bool> saveCurrentFingerprint(String name) async {
-    final activeBeacons = state.beacons.where((b) {
-      return b.lifecycle == BeaconLifecycle.active && b.filteredRssi > -95;
-    }).toList();
+    // KALİBRASYON TOPLAMA (multipath direnci):
+    // Eskiden "Kaydet"e basılan ANIN filteredRssi'si tek snapshot olarak
+    // donduruluyordu — multipath o saniye sinyali şişirdiyse/düşürdüyse o
+    // gürültü kalıcı parmak izi oluyordu. Çözüm: ~10sn boyunca her beacon için
+    // örnek topla, medyan al. Medyan rastgele multipath outlier'ını eler,
+    // gerçek seviyeyi yakalar. (Kullanıcı aynı standı yine birden çok kez
+    // kaydedebilir; per-location-best mantığı korunuyor — fark, her kaydın
+    // artık tek başına sağlam olması.)
+    const sampleInterval = Duration(milliseconds: 500); // 10sn → ~20 örnek
+    const totalTicks = 20;
 
-    if (activeBeacons.isEmpty) {
+    // Aynı anda ikinci toplama isteğini reddet (UI da engeller ama controller
+    // seviyesinde de garanti — reentrancy guard).
+    if (state.calibrationProgress >= 0) {
+      _log('Kalibrasyon zaten toplanıyor, yeni istek yok sayıldı.');
+      return false;
+    }
+
+    // Hızlı ön kontrol: hiç aktif beacon yoksa 10sn boşuna bekleme.
+    final hasActive = state.beacons.any(
+        (b) => b.lifecycle == BeaconLifecycle.active && b.filteredRssi > -95);
+    if (!hasActive) {
       _log('Hata: Kaydedilecek aktif beacon bulunamadı.');
       return false;
     }
 
-    final Map<String, int> rssiSnapshot = {};
-    for (var b in activeBeacons) {
-      rssiSnapshot[b.key] = b.filteredRssi.round();
+    // Toplama döngüsü: her tick'te görülen aktif beacon'ların filteredRssi'sini
+    // biriktir. Future.delayed event loop'u serbest bırakır → UI donmaz,
+    // ranging callback bu arada beacons'ı güncellemeye devam eder.
+    final Map<String, List<int>> samples = {};
+    for (var tick = 0; tick < totalTicks; tick++) {
+      for (final b in state.beacons) {
+        if (b.lifecycle == BeaconLifecycle.active && b.filteredRssi > -95) {
+          (samples[b.key] ??= <int>[]).add(b.filteredRssi.round());
+        }
+      }
+      state = state.copyWith(calibrationProgress: (tick + 1) / totalTicks);
+      await Future.delayed(sampleInterval);
     }
+    state = state.copyWith(calibrationProgress: -1.0); // toplama bitti → idle
+
+    if (samples.isEmpty) {
+      _log('Hata: Toplama boyunca hiç beacon görülemedi.');
+      return false;
+    }
+
+    // Her beacon için medyan (outlier'a dayanıklı orta değer).
+    final Map<String, int> rssiSnapshot = {};
+    samples.forEach((key, list) {
+      list.sort();
+      final mid = list.length ~/ 2;
+      rssiSnapshot[key] = list.length.isOdd
+          ? list[mid]
+          : ((list[mid - 1] + list[mid]) / 2).round();
+    });
 
     final fp = Fingerprint(
       // BUG FIX (Backend R3): id eskiden millisecondsSinceEpoch idi → iki
@@ -1529,7 +1579,7 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
     await _prefs.saveFingerprints(fingerprintEngine.knownFingerprints);
 
-    _log('Fingerprint Kaydedildi: "$name" (${rssiSnapshot.length} beacon ile)');
+    _log('Fingerprint kaydedildi (10sn medyan): "$name" (${rssiSnapshot.length} beacon)');
     state = state.copyWith(knownFingerprints: List.unmodifiable(fingerprintEngine.knownFingerprints));
 
     // Backend'e stand olarak da kaydet — mental model: fingerprint = stand.
