@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as fs from 'fs';
@@ -150,7 +150,9 @@ export class AdminService {
       dto.visits || dto.contacts || dto.stands || dto.beacons || dto.fingerprints
     );
     if (!anySelected) {
-      return { success: false, error: 'Hiç kategori seçilmedi' };
+      // BUG FIX (O5): Boş seçimde 200+success:false yerine 400 — diğer
+      // validation hatalarıyla tutarlı, REST tüketicisi status'tan anlar.
+      throw new BadRequestException('Hiç kategori seçilmedi');
     }
 
     this.wipeState.beginWipe();

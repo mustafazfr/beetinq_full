@@ -24,7 +24,23 @@ export class ContactsService {
     private readonly wipeState: WipeStateService,
   ) {}
 
-  async create(dto: CreateContactEventDto) {
+  // BUG FIX (K1): Temporal merge findOne→save arası atomik DEĞİL; iki eşzamanlı
+  // POST `await` noktalarında interleave olup aynı kaydı okuyup üstüne yazabilir
+  // (lost update / bölünmüş temas). better-sqlite3 senkron olduğu için create'i
+  // promise-zinciriyle serileştirmek bedava ve yarışı tamamen kapatır.
+  private _writeChain: Promise<unknown> = Promise.resolve();
+
+  create(dto: CreateContactEventDto) {
+    const next = this._writeChain.then(() => this._createImpl(dto));
+    // Zincir bir hatada kırılmasın; bir sonraki create yine sıraya girsin.
+    this._writeChain = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    return next;
+  }
+
+  private async _createImpl(dto: CreateContactEventDto) {
     // Wipe yarış koruması (R4) — visit ile aynı.
     if (this.wipeState.isWiping) {
       throw new ServiceUnavailableException(
@@ -139,7 +155,10 @@ export class ContactsService {
           (recent.lastSeenAt.getTime() - recent.firstSeenAt.getTime()) / 1000,
         );
         recent.avgRssi = dto.avgRssi;
-        recent.sampleCount += dto.sampleCount;
+        // BUG FIX (O2): merge'de sampleCount sınırsız birikmesin (kötü niyetli
+        // istemci pencere içinde 100000'lik parçalarla şişirebilir). DTO tek-POST
+        // sınırıyla (100000) aynı tavanda kelepçele.
+        recent.sampleCount = Math.min(recent.sampleCount + dto.sampleCount, 100000);
         await this.contactsRepository.save(recent);
         this.logger.debug(
           `Contact birleştirildi (temporal merge) id=${recent.id}, ` +
