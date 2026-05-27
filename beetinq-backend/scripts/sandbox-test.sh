@@ -159,6 +159,62 @@ UNIQ=$(echo "$_BODY" | grep -o '"uniqueDevicesInvolved":[0-9]*' | grep -o '[0-9]
 if [[ "${UNIQ:-0}" -ge 2 ]]; then pass "uniqueDevicesInvolved tutarlı (self-contact pair'i şişirmedi): $UNIQ"; else fail "uniqueDevicesInvolved beklenmeyen: ${UNIQ:-yok}" "$_BODY"; fi
 
 # ═══════════════════════════════════════════════════════════════════════════
+echo; info "13) Temporal merge — farklı clientEventId, zaman-yakın aynı çift+stand → BİRLEŞİR"
+DEV_C=$(openssl rand -hex 32)
+SEEN_M="aaaa:bbbb"
+CM1=$(uuidgen | tr 'A-Z' 'a-z'); CM2=$(uuidgen | tr 'A-Z' 'a-z')
+# İlk parça: T-10dk başladı, 30sn sürdü.
+MF1=$(iso 10 0); ML1=$(iso 10 30)
+req POST /contacts "{\"deviceId\":\"$DEV_C\",\"clientEventId\":\"$CM1\",\"seenAnonId\":\"$SEEN_M\",\"firstSeenAt\":\"$MF1\",\"lastSeenAt\":\"$ML1\",\"durationSeconds\":30,\"avgRssi\":-58,\"sampleCount\":15,\"locationName\":\"Giriş\"}"
+# İkinci parça: ilkinin bitişinden 20sn sonra (60sn pencere içinde) → MERGE.
+MF2=$(iso 10 50); ML2=$(iso 10 80)
+req POST /contacts "{\"deviceId\":\"$DEV_C\",\"clientEventId\":\"$CM2\",\"seenAnonId\":\"$SEEN_M\",\"firstSeenAt\":\"$MF2\",\"lastSeenAt\":\"$ML2\",\"durationSeconds\":30,\"avgRssi\":-59,\"sampleCount\":15,\"locationName\":\"Giriş\"}"
+MERGED=$(echo "$_BODY" | grep -o '"merged":true')
+if [[ -n "$MERGED" ]]; then pass "Zaman-yakın farklı eventId tek temasa birleşti (merged:true)"; else fail "Temporal merge çalışmadı" "$_BODY"; fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+echo; info "14) Temporal merge ayrımı — 60sn+ ara → YENİ temas (birleşmez)"
+CM3=$(uuidgen | tr 'A-Z' 'a-z')
+# Önceki birleşik kaydın bitişi T-10dk+80sn; bundan 120sn sonra → pencere dışı.
+MF3=$(iso 10 200); ML3=$(iso 10 230)
+req POST /contacts "{\"deviceId\":\"$DEV_C\",\"clientEventId\":\"$CM3\",\"seenAnonId\":\"$SEEN_M\",\"firstSeenAt\":\"$MF3\",\"lastSeenAt\":\"$ML3\",\"durationSeconds\":30,\"avgRssi\":-57,\"sampleCount\":15,\"locationName\":\"Giriş\"}"
+MERGED3=$(echo "$_BODY" | grep -o '"merged":true')
+if [[ -z "$MERGED3" ]]; then pass "60sn+ ara → ayrı temas açıldı (merge yok)"; else fail "Pencere dışı kayıt yanlışlıkla birleşti" "$_BODY"; fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+echo; info "15) Contact 10sn eşik — 10sn'lik kısa temas kabul edilir (backend Min 0)"
+C10=$(uuidgen | tr 'A-Z' 'a-z')
+TF=$(iso 3 0); TL=$(iso 3 10)
+req POST /contacts "{\"deviceId\":\"$DEV_C\",\"clientEventId\":\"$C10\",\"seenAnonId\":\"cccc:dddd\",\"firstSeenAt\":\"$TF\",\"lastSeenAt\":\"$TL\",\"durationSeconds\":10,\"avgRssi\":-55,\"sampleCount\":5,\"locationName\":\"Cafe\"}"
+if [[ "$_CODE" -ge 200 && "$_CODE" -lt 300 ]]; then pass "10sn'lik contact kabul edildi (HTTP $_CODE)"; else fail "10sn contact reddedildi (HTTP $_CODE)" "$_BODY"; fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+echo; info "16) Stand cascade delete — stand + ilişkili visit birlikte silinir"
+req POST /stands '{"name":"CascadeTest","x":3,"y":3}'
+CF=$(iso 5 0); CX=$(iso 5 60)
+req POST /visit "{\"deviceId\":\"$DEV_C\",\"locationName\":\"CascadeTest\",\"enteredAt\":\"$CF\",\"exitedAt\":\"$CX\",\"durationSeconds\":60,\"positionSource\":\"fingerprint\"}"
+req GET /stands; CSID=$(echo "$_BODY" | grep -o "{[^}]*\"name\":\"CascadeTest\"[^}]*}" | grep -o '"id":[0-9]*' | head -1 | grep -o '[0-9]*')
+if [[ -n "${CSID:-}" ]]; then
+  req DELETE "/stands/$CSID?cascade=true"
+  DV=$(echo "$_BODY" | grep -o '"visits":[0-9]*' | grep -o '[0-9]*' | head -1)
+  if [[ "${DV:-0}" -ge 1 ]]; then pass "Stand cascade ile $DV visit de silindi"; else fail "Cascade visit silmedi" "$_BODY"; fi
+else
+  fail "CascadeTest stand id bulunamadı" "$_BODY"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+echo; info "17) Selective wipe — sadece contacts seçilince visit/stand KORUNUR"
+req GET /stats/summary; VISITS_BEFORE=$(echo "$_BODY" | grep -o '"totalVisits":[0-9]*' | grep -o '[0-9]*')
+req POST /admin/wipe-selective '{"contacts":true}'
+req GET /stats/contacts; TC_AFTER=$(echo "$_BODY" | grep -o '"totalContacts":[0-9]*' | grep -o '[0-9]*')
+req GET /stats/summary; VISITS_AFTER=$(echo "$_BODY" | grep -o '"totalVisits":[0-9]*' | grep -o '[0-9]*')
+if [[ "${TC_AFTER:-9}" == "0" && "${VISITS_AFTER:-0}" -gt 0 ]]; then
+  pass "Selective wipe: contact=0 silindi, visit=$VISITS_AFTER korundu"
+else
+  fail "Selective wipe izolasyonu bozuk (contact=$TC_AFTER visit=$VISITS_AFTER, önce visit=$VISITS_BEFORE)" "$_BODY"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
 echo
 info "Sonuç WIPE (test verisi temizleniyor)..."
 req POST /admin/wipe '{}'
