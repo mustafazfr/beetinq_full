@@ -351,33 +351,82 @@ export class StatsService {
    * - firstSeenAt / lastSeenAt: ISO string (format panelde yapılır).
    * - durationSeconds, avgRssi, locationName: olduğu gibi.
    *
-   * Yön korunur (A gördü → B); aggregate'teki yönsüz çiftlerin aksine burada
-   * "kim raporladı" bilgisi okunur kalır. En yeni temas üstte (lastSeenAt DESC).
-   * Tarih filtresi getContactStats ile aynı (firstSeenAt aralığı).
+   * YÖN-BAĞIMSIZ birleştirme (kullanıcı kararı: "tek sürekli temas"):
+   * A→B ve B→A aynı fiziksel temasın iki cihazın gözünden hâli; tek satırda
+   * "A ↔ B" olarak birleştirilir. Aynı çiftin tüm yönlü/parçalı kayıtları
+   * toplanır: süre = en geç bitiş − en erken başlangıç, RSSI = en güçlü (en
+   * yakın an), stand = en baskın konum, eventCount = kaç ham kayıt birleşti.
+   * Böylece dashboard "8 parça" yerine tek temas gösterir. En yeni üstte.
    */
   async getContactEvents(from?: string, to?: string) {
     const qb = this.contactsRepository.createQueryBuilder('c');
     if (from) qb.andWhere('c.firstSeenAt >= :from', { from: new Date(from) });
     if (to) qb.andWhere('c.firstSeenAt <= :to', { to: new Date(to) });
-    qb.orderBy('c.lastSeenAt', 'DESC');
     const rows = await qb.getMany();
 
-    return rows.map((r) => ({
-      id: r.id,
-      reporterAnonId: this.deviceIdToAnonId(r.deviceId),
-      seenAnonId: r.seenAnonId,
-      firstSeenAt:
-        r.firstSeenAt instanceof Date
-          ? r.firstSeenAt.toISOString()
-          : new Date(r.firstSeenAt).toISOString(),
-      lastSeenAt:
-        r.lastSeenAt instanceof Date
-          ? r.lastSeenAt.toISOString()
-          : new Date(r.lastSeenAt).toISOString(),
-      durationSeconds: r.durationSeconds,
-      avgRssi: Math.round(r.avgRssi),
-      locationName: r.locationName ?? null,
-    }));
+    const toDate = (v: Date | string) => (v instanceof Date ? v : new Date(v));
+
+    // Yön-bağımsız çift anahtarı (sıralı) → birleşik kayıt.
+    const pairs = new Map<
+      string,
+      {
+        anonA: string;
+        anonB: string;
+        firstSeenAt: Date;
+        lastSeenAt: Date;
+        bestRssi: number;
+        locCounts: Record<string, number>;
+        eventCount: number;
+      }
+    >();
+
+    for (const r of rows) {
+      const a = this.deviceIdToAnonId(r.deviceId);
+      const b = r.seenAnonId;
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      const key = `${lo}|${hi}`;
+      const first = toDate(r.firstSeenAt);
+      const last = toDate(r.lastSeenAt);
+      const locKey = r.locationName ?? '';
+      const cur = pairs.get(key);
+      if (!cur) {
+        pairs.set(key, {
+          anonA: lo,
+          anonB: hi,
+          firstSeenAt: first,
+          lastSeenAt: last,
+          bestRssi: r.avgRssi,
+          locCounts: { [locKey]: 1 },
+          eventCount: 1,
+        });
+      } else {
+        if (first < cur.firstSeenAt) cur.firstSeenAt = first;
+        if (last > cur.lastSeenAt) cur.lastSeenAt = last;
+        if (r.avgRssi > cur.bestRssi) cur.bestRssi = r.avgRssi; // negatif → büyük = yakın
+        cur.locCounts[locKey] = (cur.locCounts[locKey] ?? 0) + 1;
+        cur.eventCount++;
+      }
+    }
+
+    const result = [...pairs.values()].map((p) => {
+      // En baskın stand (boş anahtar = konumsuz).
+      const dom = Object.entries(p.locCounts).sort((x, y) => y[1] - x[1])[0][0];
+      return {
+        reporterAnonId: p.anonA, // UI alan adları korundu; artık yön-bağımsız çift
+        seenAnonId: p.anonB,
+        firstSeenAt: p.firstSeenAt.toISOString(),
+        lastSeenAt: p.lastSeenAt.toISOString(),
+        durationSeconds: Math.round(
+          (p.lastSeenAt.getTime() - p.firstSeenAt.getTime()) / 1000,
+        ),
+        avgRssi: Math.round(p.bestRssi),
+        locationName: dom === '' ? null : dom,
+        eventCount: p.eventCount,
+      };
+    });
+    // En yeni üstte.
+    result.sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    return result;
   }
 
   /**

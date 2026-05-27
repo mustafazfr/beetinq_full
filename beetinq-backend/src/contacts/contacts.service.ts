@@ -152,19 +152,19 @@ export class ContactsService {
       const gapMs = firstSeenAt.getTime() - recent.lastSeenAt.getTime();
       const newLoc = dto.locationName ?? null;
       const oldLoc = recent.locationName ?? null;
-      // İki FARKLI dolu stand → per-stand ayrımı; birleştirme.
-      // (null↔stand veya aynı stand → aynı temasın devamı sayılır.)
-      const differentStands =
-        oldLoc !== null && newLoc !== null && oldLoc !== newLoc;
-      // gap negatif (örtüşme) veya pencere içinde + farklı stand değil → devam.
-      if (gapMs <= mergeWindowMs && !differentStands) {
+      // TASARIM (kullanıcı kararı: "tek sürekli temas"): stand ayrımı YOK.
+      // Aynı çift, zaman penceresi içindeyse — stand değişse bile — aynı temasın
+      // devamı sayılır ve birleşir. (Per-stand bölme kaldırıldı; konum zıplaması
+      // teması parçalamasın.) gap negatif (örtüşme) veya pencere içinde → devam.
+      if (gapMs <= mergeWindowMs) {
         // Bitişi ileri taşı (yeni daha geçse). Süre = bitiş - ilk görülme.
         if (lastSeenAt > recent.lastSeenAt) recent.lastSeenAt = lastSeenAt;
         recent.durationSeconds = Math.round(
           (recent.lastSeenAt.getTime() - recent.firstSeenAt.getTime()) / 1000,
         );
         recent.avgRssi = dto.avgRssi;
-        // Konumsuz başlayan temas stand kazandıysa konumu doldur (O4).
+        // Konumsuz başlayan temas stand kazandıysa konumu doldur (ilk dolu
+        // stand "temasın başladığı yer" olarak kalır).
         if (oldLoc === null && newLoc !== null) recent.locationName = newLoc;
         // BUG FIX (O2): merge'de sampleCount sınırsız birikmesin (kötü niyetli
         // istemci pencere içinde 100000'lik parçalarla şişirebilir). DTO tek-POST

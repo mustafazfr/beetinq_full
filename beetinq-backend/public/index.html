@@ -839,9 +839,13 @@
         const endCell = isActive
           ? '<span style="color:#22c55e">🟢 Devam ediyor</span>'
           : fmtTime(e.lastSeenAt);
+        // Yön-bağımsız çift: A ↔ B (artık tek temas, A→B ve B→A birleşti).
+        const parts = e.eventCount > 1
+          ? ` <span class="muted" style="font-size:10px">(${e.eventCount} ölçüm)</span>`
+          : '';
         return `
         <tr${isActive ? ' style="background:#0d2818"' : ''}>
-          <td><span class="anon">${e.reporterAnonId}</span><span class="arrow"> → </span><span class="anon">${e.seenAnonId}</span></td>
+          <td><span class="anon">${e.reporterAnonId}</span><span class="arrow"> ↔ </span><span class="anon">${e.seenAnonId}</span>${parts}</td>
           <td>${fmtTime(e.firstSeenAt)}</td>
           <td>${endCell}</td>
           <td class="num">${fmtDur(e.durationSeconds)}</td>
@@ -854,11 +858,11 @@
         ? ` <span style="color:#22c55e">· ${activeCount} aktif</span>`
         : '';
       wrap.innerHTML =
-        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kimi ne zaman gördü (${events.length} kayıt${activeNote}, en yeni üstte). ` +
-        `Yön: <b style="color:#888">Raporlayan</b> cihazı, <b style="color:#888">Görülen</b> cihazı gördü.</div>` +
+        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kiminle ne zaman temas etti (${events.length} temas${activeNote}, en yeni üstte). ` +
+        `Her satır iki cihaz arasındaki tek sürekli temastır (↔ çift yönlü birleşik).</div>` +
         '<div class="clog-scroll"><table class="clog"><thead><tr>' +
-        '<th>Raporlayan → Görülen</th><th>Başlangıç</th><th>Bitiş</th>' +
-        '<th class="num">Süre</th><th class="num">Ort. RSSI</th><th>Stand</th>' +
+        '<th>Temas çifti</th><th>Başlangıç</th><th>Bitiş</th>' +
+        '<th class="num">Süre</th><th class="num">En yakın RSSI</th><th>Stand</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>';
     }
 

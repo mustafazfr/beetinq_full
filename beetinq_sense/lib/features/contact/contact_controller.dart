@@ -68,39 +68,18 @@ class ContactController extends Notifier<ContactState> {
     _triggerContact = cb;
   }
 
-  /// Per-stand temas: raporlayan telefon başka standa geçtiğinde BeaconController
-  /// bunu çağırır. Halihazırda temas olarak RAPORLANMIŞ encounter'lar yeni
-  /// stand için "rotate" edilir → yeni clientEventId + firstSeen=now ile YENİ
-  /// bir temas başlar (backend yeni clientEventId'yi yeni kayıt sayar). Henüz
-  /// temas olmamış encounter'ların sadece konumu güncellenir.
+  /// Raporlayan telefonun konumu değişince BeaconController çağırır.
+  ///
+  /// TASARIM (kullanıcı kararı): Contact artık "tek sürekli temas" — konum
+  /// değişimi teması BÖLMEZ (per-stand rotate KALDIRILDI). Sebep: fingerprint
+  /// kararsız bir kurulumda konum sürekli zıplıyordu (masa↔1-2↔televizyon) ve
+  /// her zıplama yeni contact açıp dashboard'ı 8 parçaya bölüyordu. Artık
+  /// yalnızca _currentLocationName güncellenir; bu, BUNDAN SONRA başlayan YENİ
+  /// encounter'lara "temasın başladığı stand" olarak atanır. Mevcut
+  /// encounter'ların locationName'i (ilk görüldükleri stand) sabit kalır.
   void onLocationChanged(String? newLocation) {
     if (newLocation == _currentLocationName) return;
     _currentLocationName = newLocation;
-    final now = DateTime.now();
-    for (final anonId in _encounters.keys.toList()) {
-      final e = _encounters[anonId]!;
-      if (e.reportedAsContact && e.locationName != newLocation) {
-        // Yeni standda yeni temas başlat (per-stand). Son sample'ı taşı ki
-        // RSSI penceresi hemen dolsun.
-        // BUG FIX (BUG-3): firstSeen'i now yerine taşınan son sample'ın ts'ine
-        // ayarla. Çift zaten temas halindeydi; yeni standda suni bir "10sn'yi
-        // baştan say" gecikmesi yaşatmadan, o standdaki gerçek görülme anından
-        // itibaren süre ölçülür.
-        final carriedSample = e.samples.isNotEmpty ? e.samples.last : null;
-        final startTs = carriedSample?.ts ?? now;
-        _encounters[anonId] = ContactEncounter(
-          seenAnonId: anonId,
-          firstSeen: startTs,
-          lastSeen: startTs,
-          clientEventId: _uuid.v4(),
-          samples: carriedSample != null ? [carriedSample] : [],
-          locationName: newLocation,
-        );
-      } else {
-        // Henüz temas olmadı → sadece konumu güncelle.
-        e.locationName = newLocation;
-      }
-    }
   }
 
   /// BeaconController ranging callback'inden çağrılır.
@@ -182,9 +161,23 @@ class ContactController extends Notifier<ContactState> {
 
   void _evict(DateTime now) {
     final threshold = Duration(seconds: kContactEvictionSeconds);
-    _encounters.removeWhere(
-      (_, e) => now.difference(e.lastSeen) > threshold,
-    );
+    final window = const Duration(seconds: kContactDurationSeconds);
+    _encounters.removeWhere((_, e) {
+      // 1) Süre: bu kadar süredir hiç görülmedi → koptu.
+      if (now.difference(e.lastSeen) > threshold) return true;
+      // 2) RSSI (uzaklaşma): son pencere ortalaması yakınlık eşiğinin (-80 dBm
+      //    ~2m) altına düştüyse cihaz UZAKLAŞTI demektir → temas sonlandır.
+      //    "Yan odadan zayıf sinyalle temas devam etmesin" (kullanıcı kararı).
+      //    Yeni başlayan encounter'ı (henüz pencere dolmamış) erken silmemek
+      //    için yalnızca yeterli örnek + süre varsa uygula.
+      if (e.duration >= window) {
+        final recent = e.recentWindow(window);
+        if (recent.count > 0 && recent.avg <= kContactRssiThreshold) {
+          return true;
+        }
+      }
+      return false;
+    });
   }
 
   /// Test ve UI için (read-only snapshot).
