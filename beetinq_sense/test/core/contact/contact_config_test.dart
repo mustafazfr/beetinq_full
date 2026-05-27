@@ -76,8 +76,12 @@ void main() {
       expect(kContactRssiThreshold, -80);
     });
 
-    test('süre eşiği 60 sn', () {
-      expect(kContactDurationSeconds, 60);
+    test('süre eşiği 10 sn (kullanıcı isteğiyle 60→10)', () {
+      expect(kContactDurationSeconds, 10);
+    });
+
+    test('eviction eşiği 20 sn (BLE flicker payı)', () {
+      expect(kContactEvictionSeconds, 20);
     });
 
     test('contact UUID doğru formatta', () {
@@ -152,6 +156,68 @@ void main() {
       final iosAnonId = decodeLocalNameToAnonId(encodeAnonIdToLocalName(hash));
       expect(androidAnonId, iosAnonId);
       expect(androidAnonId, '1122:3344');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // Cross-platform contact KÖKTEN çözüm: anonId service UUID'ye gömülü.
+  // Hem iOS hem Android cihaza-özel UUID yayar (prefix + anonId). Bu, plugin'in
+  // Android'de localName yayamama kısıtını aşan ortak yol.
+  // ────────────────────────────────────────────────────────────────────────
+  group('encodeAnonIdToServiceUuid / decodeServiceUuidToAnonId', () {
+    test('round-trip: deviceId → UUID → anonId (decodeAnonId ile uyumlu)', () {
+      final hash = 'da9f52a4${'0' * 56}';
+      final uuid = encodeAnonIdToServiceUuid(hash);
+      // Son 8 hex = deviceId ilk 8 hex.
+      expect(uuid.replaceAll('-', '').toLowerCase().endsWith('da9f52a4'), isTrue);
+      // Decode anonId, decodeAnonId formatıyla aynı olmalı.
+      expect(decodeServiceUuidToAnonId(uuid), 'da9f:52a4');
+    });
+
+    test('üretilen UUID geçerli canonical formatta', () {
+      final uuid = encodeAnonIdToServiceUuid('abcdef01${'0' * 56}');
+      final re = RegExp(
+        r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+      );
+      expect(re.hasMatch(uuid), isTrue);
+    });
+
+    test('ortak prefix sabit, sadece son 8 hex cihaza göre değişir', () {
+      final u1 = encodeAnonIdToServiceUuid('11111111${'0' * 56}');
+      final u2 = encodeAnonIdToServiceUuid('22222222${'0' * 56}');
+      final h1 = u1.replaceAll('-', '');
+      final h2 = u2.replaceAll('-', '');
+      expect(h1.substring(0, 24), h2.substring(0, 24)); // prefix aynı
+      expect(h1.substring(24), isNot(h2.substring(24))); // anonId farklı
+    });
+
+    test('prefix taşımayan UUID → null (Beetinq paketi değil)', () {
+      expect(decodeServiceUuidToAnonId('0000180a-0000-1000-8000-00805f9b34fb'),
+          isNull);
+      expect(decodeServiceUuidToAnonId(null), isNull);
+      expect(decodeServiceUuidToAnonId('not-a-uuid'), isNull);
+    });
+
+    test('uppercase UUID de decode edilir (iOS upper döndürür)', () {
+      final uuid = encodeAnonIdToServiceUuid('deadbeef${'0' * 56}');
+      expect(decodeServiceUuidToAnonId(uuid.toUpperCase()), 'dead:beef');
+    });
+
+    test('kısa hash FormatException', () {
+      expect(() => encodeAnonIdToServiceUuid('ab'), throwsFormatException);
+    });
+
+    test('service UUID anonId == decodeAnonId (tüm yollar tutarlı)', () {
+      // Aynı cihaz: iBeacon, localName ve service UUID yolları aynı anonId vermeli.
+      final hash = 'c0ffee42${'0' * 56}';
+      final ids = encodeDeviceId(hash);
+      final viaIBeacon = decodeAnonId(ids.major, ids.minor);
+      final viaLocalName = decodeLocalNameToAnonId(encodeAnonIdToLocalName(hash));
+      final viaServiceUuid =
+          decodeServiceUuidToAnonId(encodeAnonIdToServiceUuid(hash));
+      expect(viaServiceUuid, viaIBeacon);
+      expect(viaServiceUuid, viaLocalName);
+      expect(viaServiceUuid, 'c0ff:ee42');
     });
   });
 }

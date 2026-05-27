@@ -29,7 +29,10 @@ void main() {
       expect(m, isNull);
     });
 
-    test('K=3 majority vote — 2A vs 1B → A kazanır', () {
+    test('Per-location-best — A en yakın snapshot ile kazanır', () {
+      // A'nın en iyi snapshot'ı -65 (live -66, fark 1), B -64 (fark 2).
+      // Per-location-best: her konum kendi EN İYİ snapshot'ıyla yarışır,
+      // snapshot SAYISI artık avantaj değil (eski bias düzeltildi).
       final eng = FingerprintEngine()
         ..addFingerprint(_fp('A', {'b1': -65}, id: 'a1'))
         ..addFingerprint(_fp('A', {'b1': -67}, id: 'a2'))
@@ -37,8 +40,8 @@ void main() {
       final m = eng.findNearestMatch({'b1': -66});
       expect(m, isNotNull);
       expect(m!.fingerprint.name, 'A');
-      expect(m.voteCount, 2);
-      expect(m.k, 3);
+      expect(m.voteCount, 1); // per-location-best → her konum 1 temsil
+      expect(m.k, 2); // değerlendirilen konum sayısı (A, B)
     });
 
     test('Tie-break (eşit oy) → düşük toplam skor kazanır', () {
@@ -52,16 +55,18 @@ void main() {
       expect(m!.fingerprint.name, 'B');
     });
 
-    test('Suffix "#N" majority vote için soyulur', () {
+    test('Suffix "#N" base ada indirgenir (snapshot\'lar tek konum sayılır)', () {
       final eng = FingerprintEngine()
         ..addFingerprint(_fp('Sony Standı #1', {'b1': -65}, id: 's1'))
         ..addFingerprint(_fp('Sony Standı #2', {'b1': -67}, id: 's2'))
         ..addFingerprint(_fp('Vodafone', {'b1': -90}, id: 'v1'));
       final m = eng.findNearestMatch({'b1': -66});
       expect(m, isNotNull);
-      // Base ad "Sony Standı" toplamda 2 oy
+      // "Sony Standı #1/#2" tek konuma (base ad) indirgenir, en iyi snapshot
+      // ile temsil edilir. Vodafone threshold dışı (24 dB fark) → elenir.
       expect(m!.fingerprint.name, startsWith('Sony Standı'));
-      expect(m.voteCount, 2);
+      expect(m.voteCount, 1);
+      expect(m.k, 1); // sadece Sony Standı threshold altı
     });
 
     test('Asimetrik ceza — kayıtlı beacon kayboldu daha pahalı', () {
