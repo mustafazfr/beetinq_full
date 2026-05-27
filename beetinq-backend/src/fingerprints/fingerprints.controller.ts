@@ -27,6 +27,12 @@ export class FingerprintsController {
     return this.service.findAll(eventId ?? 'default');
   }
 
+  /** Kalibrasyon kalitesi — panel "hangi stand zayıf kalibre" göstergesi. */
+  @Get('calibration')
+  calibration(@Query('eventId') eventId?: string) {
+    return this.service.getCalibrationQuality(eventId ?? 'default');
+  }
+
   @Delete(':id')
   remove(@Param('id') id: string) {
     return this.service.remove(id);

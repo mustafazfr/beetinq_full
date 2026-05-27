@@ -47,6 +47,41 @@ export class FingerprintsService {
     return this.repo.find({ where: { eventId }, order: { name: 'ASC' } });
   }
 
+  /**
+   * Kalibrasyon kalitesi: her stand (base ad) için kaç fingerprint snapshot'ı
+   * alınmış ve toplam kaç farklı beacon kapsıyor. Konumlama doğruluğu doğrudan
+   * buna bağlı — az snapshot / az beacon = zayıf konum tahmini. Panel bunu
+   * yeşil/sarı/kırmızı gösterip operatöre nereyi daha kalibre etmesi gerektiğini
+   * söyler.
+   *
+   * quality: good (≥2 snapshot ve ≥3 beacon), fair (≥1 ve ≥2), poor (altı).
+   */
+  async getCalibrationQuality(eventId = 'default') {
+    const all = await this.repo.find({ where: { eventId } });
+    const stripSuffix = (n: string) => n.replace(/\s*#\d+$/, '');
+    const byBase = new Map<
+      string,
+      { count: number; beacons: Set<string> }
+    >();
+    for (const fp of all) {
+      const base = stripSuffix(fp.name);
+      const g = byBase.get(base) ?? { count: 0, beacons: new Set<string>() };
+      g.count++;
+      for (const key of Object.keys(fp.rssiMap ?? {})) g.beacons.add(key);
+      byBase.set(base, g);
+    }
+    return [...byBase.entries()]
+      .map(([name, g]) => {
+        const beaconCount = g.beacons.size;
+        let quality: 'good' | 'fair' | 'poor';
+        if (g.count >= 2 && beaconCount >= 3) quality = 'good';
+        else if (g.count >= 1 && beaconCount >= 2) quality = 'fair';
+        else quality = 'poor';
+        return { name, snapshotCount: g.count, beaconCount, quality };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+  }
+
   async remove(id: string) {
     // BUG FIX (Backend R8): 0 satır etkilenirse 404 at (Stand/Beacon ile
     // tutarlı). Eskiden var olmayan id'de bile {success:true} dönüyordu →

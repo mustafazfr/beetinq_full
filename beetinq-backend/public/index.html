@@ -298,6 +298,12 @@
         </div>
 
         <div class="panel">
+          <h2>Kalibrasyon Kalitesi</h2>
+          <p class="hint">Her standın konum doğruluğu kaç fingerprint ve kaç beacon ile kalibre edildiğine bağlıdır. 🟢 iyi · 🟡 orta · 🔴 zayıf (daha çok kayıt/beacon gerekli).</p>
+          <div id="calibrationItems"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
+        </div>
+
+        <div class="panel">
           <h2>Fingerprint Kayıtları</h2>
           <p class="hint">Mobilden gelen RSSI parmak izleri. Tek tek silinebilir.</p>
           <div id="fingerprintItems"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
@@ -350,6 +356,7 @@
 
     let stands = [];
     let fingerprints = [];
+    let calibration = [];
     let dwellData = [];
     let summaryData = null;
     let contactStats = null;
@@ -586,6 +593,7 @@
         fetch(`/api/stats/dwell-distribution${q}`),      // 9
         fetch('/api/stats/active?minutes=5'),            // 10
         fetch('/api/fingerprints'),                      // 11
+        fetch('/api/fingerprints/calibration'),          // 12
       ]);
       try {
         // BUG FIX (drag race): sürükleme devam ederken sunucudan yeni veri
@@ -609,10 +617,12 @@
         dwellHist     = fresh(await _safeJson(results[9], null), dwellHist);
         activeNowData = await _safeJson(results[10], activeNowData);
         fingerprints  = fresh(await _safeJson(results[11], null), fingerprints);
+        calibration   = fresh(await _safeJson(results[12], null), calibration);
 
         renderStats();
         renderDwellList();
         renderStandList();
+        renderCalibration();
         renderFingerprintList();
         renderContactStats();
         renderBeaconList();
@@ -702,6 +712,28 @@
       const cy = +(r.oy + r.h / 2 + off).toFixed(2);
       await updateStand(id, cx, cy);
       renderStandList();
+    }
+
+    function renderCalibration() {
+      const el = document.getElementById('calibrationItems');
+      if (!Array.isArray(calibration) || calibration.length === 0) {
+        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz kalibrasyon (fingerprint) yok</p>';
+        return;
+      }
+      const dot = { good: '🟢', fair: '🟡', poor: '🔴' };
+      const tip = {
+        good: 'iyi kalibre',
+        fair: 'orta — daha fazla kayıt/beacon önerilir',
+        poor: 'zayıf — bu standı tekrar kalibre et',
+      };
+      // Zayıf olanlar üstte (dikkat çeksin).
+      const order = { poor: 0, fair: 1, good: 2 };
+      const sorted = [...calibration].sort((a, b) => order[a.quality] - order[b.quality]);
+      el.innerHTML = sorted.map(c => `
+        <div class="stand-list-item" title="${tip[c.quality]}">
+          <span>${dot[c.quality] || '⚪'} <b>${c.name}</b></span>
+          <span class="muted" style="font-size:11px">${c.snapshotCount} kayıt · ${c.beaconCount} beacon</span>
+        </div>`).join('');
     }
 
     function renderFingerprintList() {
