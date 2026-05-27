@@ -237,24 +237,11 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   // bitince finally bloğu bir kez daha initSdk çalıştırır.
   bool _pendingReinit = false;
 
-  // Contact tracing opt-out cache (Task 1.5.8): ranging callback sync
-  // olduğu için SharedPreferences'a her event'te async çağrı yerine
-  // mutable cache. Settings page toggle edince [setContactEnabledCache]
-  // ile güncellenir.
-  bool _contactEnabledCache = true;
-  // BUG FIX (Mobil R4 — iOS scope/KVKK): iOS'ta uygulama arka plana
-  // geçince advertiser+scanner durduruluyor ama dchs_flutter_beacon ranging
-  // (Always izniyle) arka planda contact iBeacon görmeye devam edebilir →
-  // arka planda contact event raporlanabilirdi (scope ihlali: "iOS'ta arka
-  // planda contact YOK"). Bu flag ile iOS'ta yalnızca ön planda contact
-  // event işlenir. Android'de arka plan contact SCOPE İÇİNDE → her zaman true.
-  bool _appInForeground = true;
-  // Self-contact guard: cihazın kendi iBeacon yayınını ranging'de görmesi
-  // halinde (bazı Android cihazlar kendi advertisement'ını tarar) kendisiyle
-  // "contact" kaydı oluşturmasını engeller. initSdk'da kendi deviceId'sinden
-  // hesaplanır. flutter_blue_plus scanner'da zaten self-skip var; bu, iBeacon
-  // ranging tarafının karşılığı.
-  String? _selfContactAnonId;
+  // NOT (BUG-6 temizliği): _contactEnabledCache ve _appInForeground kaldırıldı.
+  // Bunları okuyan tek yer dchs-ranging contact dalıydı (artık yok). Contact
+  // opt-out ve iOS-foreground kısıtı şimdi ContactBleScanner'da yönetiliyor
+  // (kendi _contactEnabledCache'i + iOS paused'da scanner.stop). Opt-out
+  // toggle'ı [setContactEnabledCache] ile doğrudan scanner'a forward edilir.
   // BUG FIX: Watchdog reentrancy guard. Watchdog restart sırasında
   // tekrar tetiklenirse iki paralel startDeviceRanging çalışmaz.
   bool _isRestartingRanging = false;
@@ -302,15 +289,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   BeaconState build() {
     _service = ref.read(beaconServiceProvider);
     WidgetsBinding.instance.addObserver(this);
-    // İlk lifecycle state'i flutter'dan oku: lifecycle event'i hiç gelmeden de
-    // doğru başlangıç değeri (örn Xcode'dan Run sonrası iOS bazen resumed
-    // event'ini geç tetikler veya hiç tetiklemez).
-    final initial = WidgetsBinding.instance.lifecycleState;
-    if (Platform.isIOS && initial != null) {
-      _appInForeground = initial != AppLifecycleState.paused &&
-                         initial != AppLifecycleState.detached &&
-                         initial != AppLifecycleState.hidden;
-    }
     ref.onDispose(() {
       WidgetsBinding.instance.removeObserver(this);
       _statusPollTimer?.cancel();
@@ -341,19 +319,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   @override
   // ignore: avoid_renaming_method_parameters
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
-    // BUG FIX: iOS lifecycle akışı active → inactive → paused → inactive →
-    // resumed sırasıyla gider; bazen resumed hiç gelmez veya kullanıcı kısa
-    // bir geçişte yalnızca `inactive` görür. Eski kod sadece resumed'da true
-    // yapıyordu → bir kez paused'tan sonra `inactive` durumunda takılırsa
-    // _appInForeground sonsuza kadar false kalıyordu → iPhone contact
-    // event'lerini hiç işlemiyordu ("0 contact" rağmen Android iPhone'u
-    // görüyor). Yeni: paused/detached/hidden değilse foreground sayılır.
-    if (Platform.isIOS) {
-      _appInForeground = lifecycle != AppLifecycleState.paused &&
-                         lifecycle != AppLifecycleState.detached &&
-                         lifecycle != AppLifecycleState.hidden;
-    }
-
     if (lifecycle == AppLifecycleState.paused ||
         lifecycle == AppLifecycleState.detached) {
       if (state.detectedLocation != null && state.currentSessionStart != null) {
@@ -382,8 +347,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     }
 
     if (lifecycle == AppLifecycleState.resumed) {
-      // _appInForeground zaten üstte ayarlandı. Burada sadece iOS resumed'da
-      // advertiser+scanner restart edilir (paused'da durdurulmuştu).
+      // iOS ön plana dönünce contact advertiser+scanner yeniden başlatılır
+      // (paused'da durdurulmuştu).
       if (Platform.isIOS) {
         _restartContactAdvertiserIfEnabled();
       }
@@ -429,14 +394,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     debugPrint('[BeaconController] $msg');
   }
 
-  /// Settings page opt-out toggle'ı burayı çağırır; ranging callback
-  /// değişikliği anında görür. startScanning tekrar çağrılmasına gerek yok.
-  ///
-  /// Cross-platform scanner (Task 2.18): aynı cache flag'i flutter_blue_plus
-  /// scanner'ına da forward edilir, böylece iOS yayınlarını da event olarak
-  /// düşürür/sayar.
+  /// Settings page opt-out toggle'ı burayı çağırır. Opt-out durumunu
+  /// flutter_blue_plus scanner'ına forward eder (contact artık tamamen orada
+  /// işleniyor); sonraki scan event'leri controller'a düşürülmez.
   void setContactEnabledCache(bool enabled) {
-    _contactEnabledCache = enabled;
     ref.read(contactBleScannerProvider).setContactEnabledCache(enabled);
     // Opt-out kapatıldıysa state göstergelerini de düşür (settings_page
     // advertiser/scanner.stop'u kendisi çağırıyor; biz sadece UI sync).
@@ -501,7 +462,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _locationLossCount = 0;
     _initInProgress = false;
     _isRestartingRanging = false;
-    _selfContactAnonId = null;
 
     await _prefs.wipeAllData();
 
@@ -520,18 +480,6 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     // "sistem hazır değil"de takılı kalıyordu. initSdk hem listener'ları
     // tekrar bağlar hem target kayıtlıysa taramayı baştan başlatır.
     await initSdk();
-  }
-
-  /// Contact tracing beacon'ları için callback (Task 1.5.5).
-  /// ContactController encounter map'ini günceller, eşik aşılırsa
-  /// API tetiklemesi 1.5.7'deki hook üzerinden yapılır.
-  void _onContactBeacon(int major, int minor, int rssi, DateTime now) {
-    final anonId = decodeAnonId(major, minor);
-    // Self-contact guard: kendi yayınımızı gördüysek sayma.
-    if (_selfContactAnonId != null && anonId == _selfContactAnonId) return;
-    ref
-        .read(contactControllerProvider.notifier)
-        .onEncounterEvent(anonId, rssi, now);
   }
 
   Future<void> refreshStatus() async {
@@ -786,16 +734,9 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // Contact tracing (Task 1.5.7): eşik aşıldığında API'ye gönderilsin.
       final reporterDeviceId = await _deviceId.getDeviceId();
 
-      // Self-contact guard: kendi yayınımızın anonId'sini hesapla (iBeacon
-      // ranging kendi advertisement'ını görürse atlanır).
-      try {
-        final ids = encodeDeviceId(reporterDeviceId);
-        _selfContactAnonId = decodeAnonId(ids.major, ids.minor);
-      } catch (e) {
-        _selfContactAnonId = null;
-        _log('⚠️ Self-contact anonId hesaplanamadı: $e');
-      }
-
+      // NOT (BUG-6 temizliği): iBeacon ranging self-contact guard kaldırıldı —
+      // contact artık flutter_blue_plus (ContactBleScanner) üzerinden ve orada
+      // kendi self-skip'i var (selfDeviceIdHash → encodeAnonIdToServiceUuid).
       ref.read(contactControllerProvider.notifier).setContactTrigger(
         (encounter) {
           _api.sendContactEvent(
@@ -993,19 +934,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         minor: t.minor,
       );
 
-      // iOS background contact tarama için ayrı region monitoring (Task 2.13).
-      // Region monitoring iOS tarafından OS-level sürdürülür: ekran kapalı,
-      // app background hatta swipe-killed olsa bile region'a giriş/çıkışta
-      // sistem uygulamayı uyandırır ve ranging penceresi açılır.
-      // Aksi halde iOS'ta contact scan sadece app foreground'da çalışırdı.
-      final contactRegions = _service.buildIosRegions(
-        identifier: 'ContactTrace-$kContactTracingUuid',
-        uuid: kContactTracingUuid,
-      );
-      final allRegions = [...regions, ...contactRegions];
-
+      // NOT (BUG-6 temizliği): Eski iBeacon contact region monitoring'i
+      // kaldırıldı. Cross-platform contact artık service-UUID + flutter_blue_plus
+      // üzerinden (ContactBleScanner). dchs_flutter_beacon yalnızca TARGET beacon
+      // (konumlama) için kullanılıyor; contact iBeacon yolu ölüydü.
       _monitoringSub?.cancel();
-      _monitoringSub = _service.startMonitoring(allRegions).listen((result) {
+      _monitoringSub = _service.startMonitoring(regions).listen((result) {
         final updated = [result, ...state.monitoringResults].take(50).toList();
         state = state.copyWith(monitoring: true, monitoringResults: updated);
       });
@@ -1036,21 +970,14 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         minor: t.minor,
       );
 
-      // Contact tracing (Task 1.5.4): ikinci region — başka cihazların
-      // iBeacon yayınları. Ayrı UUID olduğu için mevcut fingerprint/
-      // trilaterasyon akışına girmez; callback içinde ayrıştırılır.
-      final contactRegions = _service.buildIosRegions(
-        identifier: 'ContactTrace-$kContactTracingUuid',
-        uuid: kContactTracingUuid,
-      );
-      final allRegions = [...regions, ...contactRegions];
-
-      _contactEnabledCache = await SettingsPrefs().isContactEnabled();
+      // NOT (BUG-6 temizliği): Eski iBeacon contact region'ı kaldırıldı.
+      // Cross-platform contact artık service-UUID + flutter_blue_plus üzerinden
+      // (ContactBleScanner). dchs_flutter_beacon ranging YALNIZCA target beacon
+      // (konumlama) içindir; contact iBeacon yolu ölüydü.
       final targetUuidUpper = t.uuid.toUpperCase();
-      final contactUuidUpper = kContactTracingUuid.toUpperCase();
 
       await _rangingSub?.cancel();
-      _rangingSub = _service.startRanging(allRegions).listen(
+      _rangingSub = _service.startRanging(regions).listen(
         (result) async {
           final now = DateTime.now();
           _lastRangingEvent = now;
@@ -1069,29 +996,13 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             // BUG FIX (iOS sinyal kalitesi): iOS CoreLocation, beacon'u gördüğü
             // ama o döngüde sinyal gücünü ölçemediği durumda rssi=0 döndürür
             // (bazen pozitif de). BLE RSSI her zaman NEGATİFtir (-1..-100).
-            // Bu geçersiz okumalar median+Kalman filtresine girerse 0 dBm "çok
-            // güçlü sinyal" gibi algılanıp filtreyi bozuyor → fingerprint/
-            // trilaterasyon yanlışlanıyor (Android'de görülmez, hep negatif).
-            // Geçersiz okumayı tüm akış için (target + contact) atla.
+            // Bu geçersiz okuma median+Kalman'a girerse 0 dBm "çok güçlü sinyal"
+            // gibi algılanıp filtreyi bozar (Android hep negatif verir, etkilenmez).
             if (raw >= 0) continue;
 
-            // Contact tracing UUID'si: _rows'a düşmez, ayrı akışa gider.
-            // (Aggregation Task 1.5.5'te ContactController'da yapılacak.)
-            // R4: iOS'ta yalnızca ön planda işle (_appInForeground); arka
-            // planda Always izniyle gelen contact iBeacon'ları sayma → scope.
-            // NOT: Cross-platform contact artık service-UUID + flutter_blue_plus
-            // üzerinden yürüyor (ContactBleScanner). Bu dchs-ranging iBeacon yolu
-            // ölü (kimse iBeacon yaymıyor) ama eski sürümlerle geriye uyum için
-            // duruyor — kimse iBeacon yaymazsa hiç tetiklenmez.
-            if (uuid == contactUuidUpper) {
-              if (_contactEnabledCache && _appInForeground) {
-                _lastBeaconActivity = now;
-                _onContactBeacon(major, minor, raw, now);
-              }
-              continue;
-            }
-            // Beklenmeyen UUID (target dışı ve contact dışı) — savunma:
-            // log bırak, işleme alma.
+            // Yalnızca target beacon UUID işlenir (konumlama). Contact artık
+            // bu ranging yolundan DEĞİL, service-UUID + flutter_blue_plus
+            // (ContactBleScanner) üzerinden. Beklenmeyen UUID → işleme alma.
             if (uuid != targetUuidUpper) {
               continue;
             }

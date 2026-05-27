@@ -80,13 +80,20 @@ class ContactController extends Notifier<ContactState> {
     for (final anonId in _encounters.keys.toList()) {
       final e = _encounters[anonId]!;
       if (e.reportedAsContact && e.locationName != newLocation) {
-        // Yeni standda yeni temas başlat (son sample'ı taşı ki hızlı toparlasın).
+        // Yeni standda yeni temas başlat (per-stand). Son sample'ı taşı ki
+        // RSSI penceresi hemen dolsun.
+        // BUG FIX (BUG-3): firstSeen'i now yerine taşınan son sample'ın ts'ine
+        // ayarla. Çift zaten temas halindeydi; yeni standda suni bir "10sn'yi
+        // baştan say" gecikmesi yaşatmadan, o standdaki gerçek görülme anından
+        // itibaren süre ölçülür.
+        final carriedSample = e.samples.isNotEmpty ? e.samples.last : null;
+        final startTs = carriedSample?.ts ?? now;
         _encounters[anonId] = ContactEncounter(
           seenAnonId: anonId,
-          firstSeen: now,
-          lastSeen: now,
+          firstSeen: startTs,
+          lastSeen: startTs,
           clientEventId: _uuid.v4(),
-          samples: e.samples.isNotEmpty ? [e.samples.last] : [],
+          samples: carriedSample != null ? [carriedSample] : [],
           locationName: newLocation,
         );
       } else {

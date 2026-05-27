@@ -166,12 +166,22 @@ class FingerprintEngine {
     // STICKINESS (zıplama önleme): İki stand neredeyse eşit mesafedeyse her
     // tarama winner'ı değiştirip "bir cam bir kapı" flicker'ı yaratır. Mevcut
     // konum hâlâ aday VE en iyiye [stickyMargin] kadar yakınsa, konumu KORU.
+    //
+    // BUG FIX (BUG-5): Eskiden sadece "winner'a yakınlık" kontrol ediliyordu →
+    // kullanıcı standdan gerçekten uzaklaştığında bile (mevcut konumun skoru
+    // kötüleşse de winner'a göreli yakın kaldığı sürece) yanlış konuma "yapışıp"
+    // kalabiliyordu. Ek koşul: mevcut konum MUTLAK olarak da hâlâ iyi olmalı
+    // (eşiğin yarısı altında). Gerçekten uzaklaşıldığında (skor > threshold/2)
+    // yapışma bırakılır → doğru konuma geçer. Flicker önleme korunur, yanlış
+    // takılma engellenir.
     if (currentLocation != null) {
       final curBase = currentLocation.replaceAll(RegExp(r'\s*#\d+$'), '');
       for (final m in ranked) {
         final mBase = m.fingerprint.name.replaceAll(RegExp(r'\s*#\d+$'), '');
-        if (mBase == curBase && m.score <= winner.score + stickyMargin) {
-          winner = m; // mevcut konuma yapış
+        if (mBase == curBase &&
+            m.score <= winner.score + stickyMargin &&
+            m.score < threshold / 2) {
+          winner = m; // mevcut konuma yapış (hem yakın hem mutlak iyi)
           break;
         }
       }

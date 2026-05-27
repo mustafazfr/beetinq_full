@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { QueryFailedError, Repository, IsNull } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 
 import { CreateContactEventDto } from './dto/create-contact-event.dto';
@@ -137,24 +137,35 @@ export class ContactsService {
     // "20sn'lik parçalar" yerine tek sürekli temas görünür. Farklı stand veya
     // pencere dışı → gerçekten yeni temas (per-stand contact korunur).
     const mergeWindowMs = 60 * 1000;
+    // BUG FIX (O4): Merge sorgusu locationName ayrımı YAPMAZ; aynı (raporlayan,
+    // görülen) çiftinin son kaydını bulur. Stand eşleşmesi aşağıda akıllıca
+    // değerlendirilir — böylece konumsuz (null) başlayıp sonra stand kazanan
+    // temas bölünmez, ama İKİ FARKLI stand per-stand contact için ayrı kalır.
     const recent = await this.contactsRepository.findOne({
       where: {
         deviceId: dto.deviceId,
         seenAnonId: dto.seenAnonId,
-        locationName: dto.locationName ?? IsNull(),
       },
       order: { lastSeenAt: 'DESC' },
     });
     if (recent) {
       const gapMs = firstSeenAt.getTime() - recent.lastSeenAt.getTime();
-      // gap negatif (örtüşme) veya pencere içinde → aynı temasın devamı.
-      if (gapMs <= mergeWindowMs) {
+      const newLoc = dto.locationName ?? null;
+      const oldLoc = recent.locationName ?? null;
+      // İki FARKLI dolu stand → per-stand ayrımı; birleştirme.
+      // (null↔stand veya aynı stand → aynı temasın devamı sayılır.)
+      const differentStands =
+        oldLoc !== null && newLoc !== null && oldLoc !== newLoc;
+      // gap negatif (örtüşme) veya pencere içinde + farklı stand değil → devam.
+      if (gapMs <= mergeWindowMs && !differentStands) {
         // Bitişi ileri taşı (yeni daha geçse). Süre = bitiş - ilk görülme.
         if (lastSeenAt > recent.lastSeenAt) recent.lastSeenAt = lastSeenAt;
         recent.durationSeconds = Math.round(
           (recent.lastSeenAt.getTime() - recent.firstSeenAt.getTime()) / 1000,
         );
         recent.avgRssi = dto.avgRssi;
+        // Konumsuz başlayan temas stand kazandıysa konumu doldur (O4).
+        if (oldLoc === null && newLoc !== null) recent.locationName = newLoc;
         // BUG FIX (O2): merge'de sampleCount sınırsız birikmesin (kötü niyetli
         // istemci pencere içinde 100000'lik parçalarla şişirebilir). DTO tek-POST
         // sınırıyla (100000) aynı tavanda kelepçele.
