@@ -708,6 +708,19 @@ class ApiService {
   Future<void> _enqueueContact(Map<String, dynamic> payload) {
     return _withContactQueueLock(() async {
       final queue = await _loadContactQueue();
+      // BUG FIX (Mobil BUG-1): Contact re-report sabit clientEventId ile 15sn'de
+      // bir gelir. Offline'da koşulsuz add → uzun temasta aynı eventId'den
+      // onlarca kopya birikiyordu (10dk = ~40 kopya). Aynı (deviceId,
+      // clientEventId) kaydı varsa kaldırıp en güncel payload ile değiştir →
+      // kuyrukta her temas TEK kayıt (upsert-in-queue). Backend zaten upsert
+      // ediyor, ama bu gereksiz N× flush trafiğini ve kuyruk şişmesini önler.
+      final cid = payload['clientEventId'];
+      final dev = payload['deviceId'];
+      if (cid != null) {
+        queue.removeWhere(
+          (e) => e['clientEventId'] == cid && e['deviceId'] == dev,
+        );
+      }
       queue.add(payload);
       await _saveContactQueue(queue);
       debugPrint('📥 [API] Contact kuyruğa eklendi. Kuyruk: ${queue.length}');

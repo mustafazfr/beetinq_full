@@ -413,6 +413,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       state = state.copyWith(
         contactAdvertising: advOk,
         contactScanning: scanOk,
+        // BUG FIX (Mobil BUG-8): resume'da da hata sebebini UI'ya taşı (initSdk
+        // ile simetri). Eskiden resume sonrası yayın başarısızsa kullanıcı
+        // "Temas Yayını kapalı" görür ama sebebini göremezdi.
+        contactError: advOk
+            ? null
+            : ref.read(contactAdvertiserProvider).lastError,
       );
     } catch (e) {
       _log('contact advertiser/scanner resume hatası: $e');
