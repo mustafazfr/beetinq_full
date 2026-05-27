@@ -48,13 +48,14 @@ export class FingerprintsService {
   }
 
   /**
-   * Kalibrasyon kalitesi: her stand (base ad) için kaç fingerprint snapshot'ı
-   * alınmış ve toplam kaç farklı beacon kapsıyor. Konumlama doğruluğu doğrudan
-   * buna bağlı — az snapshot / az beacon = zayıf konum tahmini. Panel bunu
-   * yeşil/sarı/kırmızı gösterip operatöre nereyi daha kalibre etmesi gerektiğini
-   * söyler.
+   * Kalibrasyon kalitesi: her stand (base ad) için kaç kayıt alınmış ve toplam
+   * kaç farklı beacon kapsıyor. Kalite artık BEACON ÇEŞİTLİLİĞİNE göre verilir
+   * (snapshot sayısına değil): mobil "Konum Kaydet" 10sn medyan topladığı için
+   * tek kayıt bile sağlamdır. Asıl ayırt edicilik kaç farklı beacon görüldüğüdür
+   * — fingerprint iki konumu ancak farklı beacon'lar farklı güçte görünürse
+   * ayırabilir. Panel bunu yeşil/sarı/kırmızı gösterir.
    *
-   * quality: good (≥2 snapshot ve ≥3 beacon), fair (≥1 ve ≥2), poor (altı).
+   * quality: good (≥3 beacon), fair (2 beacon), poor (≤1 beacon).
    */
   async getCalibrationQuality(eventId = 'default') {
     const all = await this.repo.find({ where: { eventId } });
@@ -74,8 +75,8 @@ export class FingerprintsService {
       .map(([name, g]) => {
         const beaconCount = g.beacons.size;
         let quality: 'good' | 'fair' | 'poor';
-        if (g.count >= 2 && beaconCount >= 3) quality = 'good';
-        else if (g.count >= 1 && beaconCount >= 2) quality = 'fair';
+        if (beaconCount >= 3) quality = 'good';
+        else if (beaconCount === 2) quality = 'fair';
         else quality = 'poor';
         return { name, snapshotCount: g.count, beaconCount, quality };
       })

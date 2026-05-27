@@ -298,6 +298,12 @@
         </div>
 
         <div class="panel">
+          <h2>Konum Doğruluğu</h2>
+          <p class="hint">Mobilden "Doğruluk Testi" ölçümleri: fingerprint isabet %, trilaterasyon ortalama/medyan hata (m). Saha doğrulama metriği.</p>
+          <div id="accuracyReport"><p style="color:#555;font-size:13px">Henüz ölçüm yok</p></div>
+        </div>
+
+        <div class="panel">
           <h2>Kalibrasyon Kalitesi</h2>
           <p class="hint">Her standın konum doğruluğu kaç fingerprint ve kaç beacon ile kalibre edildiğine bağlıdır. 🟢 iyi · 🟡 orta · 🔴 zayıf (daha çok kayıt/beacon gerekli).</p>
           <div id="calibrationItems"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
@@ -357,6 +363,7 @@
     let stands = [];
     let fingerprints = [];
     let calibration = [];
+    let accuracyData = null;
     let dwellData = [];
     let summaryData = null;
     let contactStats = null;
@@ -594,6 +601,7 @@
         fetch('/api/stats/active?minutes=5'),            // 10
         fetch('/api/fingerprints'),                      // 11
         fetch('/api/fingerprints/calibration'),          // 12
+        fetch(`/api/stats/accuracy${q}`),                // 13
       ]);
       try {
         // BUG FIX (drag race): sürükleme devam ederken sunucudan yeni veri
@@ -618,11 +626,13 @@
         activeNowData = await _safeJson(results[10], activeNowData);
         fingerprints  = fresh(await _safeJson(results[11], null), fingerprints);
         calibration   = fresh(await _safeJson(results[12], null), calibration);
+        accuracyData  = await _safeJson(results[13], accuracyData);
 
         renderStats();
         renderDwellList();
         renderStandList();
         renderCalibration();
+        renderAccuracy();
         renderFingerprintList();
         renderContactStats();
         renderBeaconList();
@@ -722,9 +732,9 @@
       }
       const dot = { good: '🟢', fair: '🟡', poor: '🔴' };
       const tip = {
-        good: 'iyi kalibre',
-        fair: 'orta — daha fazla kayıt/beacon önerilir',
-        poor: 'zayıf — bu standı tekrar kalibre et',
+        good: 'iyi — 3+ beacon görüyor, konum ayrışır',
+        fair: 'orta — sadece 2 beacon; bu standa daha çok beacon görünür olmalı',
+        poor: 'zayıf — 1 beacon; bu konum güvenilir ayrışmaz',
       };
       // Zayıf olanlar üstte (dikkat çeksin).
       const order = { poor: 0, fair: 1, good: 2 };
@@ -732,8 +742,40 @@
       el.innerHTML = sorted.map(c => `
         <div class="stand-list-item" title="${tip[c.quality]}">
           <span>${dot[c.quality] || '⚪'} <b>${c.name}</b></span>
-          <span class="muted" style="font-size:11px">${c.snapshotCount} kayıt · ${c.beaconCount} beacon</span>
+          <span class="muted" style="font-size:11px">${c.beaconCount} beacon · ${c.snapshotCount} kayıt (10sn medyan)</span>
         </div>`).join('');
+    }
+
+    function renderAccuracy() {
+      const el = document.getElementById('accuracyReport');
+      const a = accuracyData;
+      if (!a || a.totalSamples === 0) {
+        el.innerHTML = '<p style="color:#555;font-size:13px">Henüz ölçüm yok. Mobilde "Doğruluk Testi" ile gerçek konumu işaretle.</p>';
+        return;
+      }
+      const fpAcc = a.fingerprintAccuracy;
+      const card = (label, val, sub) => `
+        <div style="flex:1;min-width:120px;background:#111;border:1px solid #2a2a2a;border-radius:8px;padding:10px 12px">
+          <div style="font-size:22px;font-weight:600">${val}</div>
+          <div style="font-size:11px;color:#888">${label}</div>
+          ${sub ? `<div style="font-size:10px;color:#555">${sub}</div>` : ''}
+        </div>`;
+      let html = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+      html += card('Toplam ölçüm', a.totalSamples);
+      if (fpAcc != null) html += card('Fingerprint isabet', `%${fpAcc}`, `${a.fingerprintCorrect}/${a.fingerprintSamples}`);
+      if (a.medianErrorMeters != null) html += card('Medyan hata', `${a.medianErrorMeters}m`, `${a.errorSampleCount} trilaterasyon ölçümü`);
+      if (a.meanErrorMeters != null) html += card('Ort. hata', `${a.meanErrorMeters}m`);
+      html += '</div>';
+      // Stand bazında isabet (zayıf üstte).
+      if (Array.isArray(a.byLocation) && a.byLocation.length) {
+        html += '<div style="font-size:11px;color:#888;margin-bottom:4px">Stand bazında isabet (zayıf üstte):</div>';
+        html += a.byLocation.map(l => {
+          const color = l.accuracy >= 80 ? '#22c55e' : l.accuracy >= 50 ? '#f59e0b' : '#ef4444';
+          return `<div class="stand-list-item"><span><b>${l.name}</b></span>` +
+            `<span style="color:${color};font-size:12px">%${l.accuracy} <span class="muted">(${l.correct}/${l.total})</span></span></div>`;
+        }).join('');
+      }
+      el.innerHTML = html;
     }
 
     function renderFingerprintList() {
