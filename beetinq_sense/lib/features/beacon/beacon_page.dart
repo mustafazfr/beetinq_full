@@ -118,7 +118,10 @@ class _BeaconPageState extends ConsumerState<BeaconPage> {
                 ..sort();
               if (names.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                  content: Text('Önce konum (fingerprint) kaydet.'),
+                  content: Text(
+                    'Doğruluk testi için önce bir stand kaydet '
+                    '("Konum Kaydet" 🎯 ile) — gerçek konumu listeden seçeceksin.',
+                  ),
                 ));
                 return;
               }
