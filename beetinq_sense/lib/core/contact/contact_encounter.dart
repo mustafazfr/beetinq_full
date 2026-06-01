@@ -25,9 +25,10 @@ class ContactEncounter {
   /// Bu encounter en son ne zaman API'ye raporlandı. Re-report aralığı
   /// (kContactReReportIntervalSeconds) buna göre ölçülür. null = hiç gönderilmedi.
   DateTime? lastReportedAt;
-  /// Bu temasın izlendiği stand/konum. Per-stand temas (kullanıcı tercihi):
-  /// raporlayan telefon başka standa geçince encounter "rotate" edilip bu yeni
-  /// stand için YENİ bir temas başlatılır. Backend'e bu locationName gider.
+  /// Bu temasın başladığı stand/konum. TASARIM (kullanıcı kararı): temas "tek
+  /// sürekli temas" — raporlayan telefon başka standa geçse de encounter
+  /// BÖLÜNMEZ (per-stand rotate KALDIRILDI). locationName, encounter ilk
+  /// oluştuğunda atanır ve sabit kalır; backend'e bu değer gider.
   String? locationName;
 
   ContactEncounter({

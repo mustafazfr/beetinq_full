@@ -29,17 +29,34 @@ class ContactState {
       lastContactAt: lastContactAt ?? this.lastContactAt,
     );
   }
+
+  // PERF FIX: değer-eşitliği. onEncounterEvent HER BLE paketinde
+  // (flutter_blue_plus continuousUpdates + lowLatency) state=copyWith çağırıyor.
+  // Eşitlik override'ı olmadan Riverpod her paketi "değişiklik" sayıp
+  // beacon_page'i baştan çiziyordu (kalabalık fuarda saniyede onlarca rebuild +
+  // pil). Sayaçlar aynıysa artık yeni state == eski state → notify yok.
+  @override
+  bool operator ==(Object other) =>
+      other is ContactState &&
+      other.activeEncounterCount == activeEncounterCount &&
+      other.reportedContactCount == reportedContactCount &&
+      other.lastContactAt == lastContactAt;
+
+  @override
+  int get hashCode =>
+      Object.hash(activeEncounterCount, reportedContactCount, lastContactAt);
 }
 
 /// Contact tracing encounter aggregation (Task 1.5.5).
 ///
-/// BeaconController ranging callback'i her contact UUID yayını için
+/// BeaconController scanner callback'i her contact yayını için
 /// [onEncounterEvent] çağırır. Controller:
 /// 1. Encounter map'te anonId ile kayıt açar/günceller, RSSI örneği ekler.
-/// 2. Süre ≥ 60s VE son 60s ortalama RSSI > -80 dBm VE daha önce raporlanmadı
-///    → contact olarak işaretle + [_triggerContact] hook'unu çağır
-///    (API send Task 1.5.7'de hook'a bağlanacak).
-/// 3. [kContactEvictionSeconds] (5 dk) süredir görülmeyen encounter'ı sil.
+/// 2. Süre ≥ [kContactDurationSeconds] (10s) VE son 10s ortalama RSSI > -80 dBm
+///    VE daha önce raporlanmadı → contact olarak işaretle + [_triggerContact]
+///    hook'unu çağır (ApiService.sendContactEvent).
+/// 3. [kContactEvictionSeconds] (20s) süredir görülmeyen VEYA sinyali
+///    [kContactEvictRssiThreshold] (-85) altına düşen encounter'ı sil.
 ///
 /// RAM-only: uygulama kapanınca encounter map kaybolur. Raporlanmış contact'lar
 /// API'ye gittiği için kalıcı; aktif ama henüz eşiği aşmamışlar gider — kabul
@@ -110,7 +127,13 @@ class ContactController extends Notifier<ContactState> {
     }
 
     _evict(now);
-    _maybeTriggerContact(_encounters[anonId]!);
+    // BUG FIX (multi-agent bug-avı): _evict bu anonId'yi SİLMİŞ olabilir (süre
+    // dolmuş + sinyal -85 altına düşmüş encounter). Eskiden sonraki satır
+    // `_encounters[anonId]!` ile null-check crash ediyordu — üstelik bu çağrı
+    // scanner callback'inde senkron, yani o tarama paketi hiç işlenmiyordu.
+    // Evict edilmişse zaten "çok zayıf/uzak" demektir; tetiklenecek bir şey yok.
+    final current = _encounters[anonId];
+    if (current != null) _maybeTriggerContact(current);
 
     // UI state güncelle
     state = state.copyWith(activeEncounterCount: _encounters.length);
@@ -172,7 +195,12 @@ class ContactController extends Notifier<ContactState> {
       //    için yalnızca yeterli örnek + süre varsa uygula.
       if (e.duration >= window) {
         final recent = e.recentWindow(window);
-        if (recent.count > 0 && recent.avg <= kContactRssiThreshold) {
+        // BUG FIX (multi-agent bug-avı): evict eşiği TETİK eşiğinden (-80) daha
+        // düşük (-85, histerezis). Aksi halde -80 sınırında gezen cihaz
+        // tetiklen → evict → yeni encounter flip-flop'una girip
+        // reportedContactCount'u şişiriyordu. -85..-80 ölü bandında encounter
+        // KORUNUR ama yeniden tetiklenmez.
+        if (recent.count > 0 && recent.avg <= kContactEvictRssiThreshold) {
           return true;
         }
       }

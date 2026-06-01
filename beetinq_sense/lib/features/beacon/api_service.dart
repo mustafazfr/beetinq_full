@@ -825,11 +825,16 @@ class ApiService {
       final cutoff = DateTime.now().subtract(const Duration(days: 7));
       final fresh = queue.where((item) {
         final raw = item['lastSeenAt'] as String?;
-        if (raw == null) return false;
+        // BUG FIX (multi-agent bug-avı): visit kuyruğundaki R15 ile AYNI
+        // invariant. Eskiden belirsiz (null / parse-edilemez) kayıt `false`
+        // dönüp SESSİZCE siliniyordu → "veri kaybolmaz" garantisi ihlali.
+        // Artık korunur; gönderimde değerlendirilir, gerçekten bozuksa backend
+        // 400 verir ve poison-pill yolundan loglanarak temizlenir (sessiz değil).
+        if (raw == null) return true; // belirsiz → koru
         try {
           return DateTime.parse(raw).isAfter(cutoff);
         } catch (_) {
-          return false;
+          return true; // parse edilemiyor → koru, silme
         }
       }).toList();
 

@@ -31,6 +31,7 @@ class ContactBleScanner {
   static const _logTag = '[ContactBleScanner]';
 
   StreamSubscription<List<ScanResult>>? _sub;
+  StreamSubscription<BluetoothAdapterState>? _adapterSub;
   bool _running = false;
   String? _selfAnonId; // Kendi yayınımızı görürsek atlayalım.
   bool _contactEnabledCache = true;
@@ -136,6 +137,22 @@ class ContactBleScanner {
       );
 
       _running = true;
+
+      // BUG FIX (multi-agent bug-avı): kullanıcı BT'yi kapatıp açınca OS
+      // taraması durur ama _running=true KALIYORDU; sonraki start() baştaki
+      // `if (_running) return true` guard'ı yüzünden no-op dönüp scanner ölü
+      // kalıyordu (app restart gerekiyordu). Adapter 'on' dışına çıkınca durumu
+      // sıfırla → BeaconController BT-on'da initSdk()→start() çağırınca scanner
+      // gerçekten yeniden başlar. Dinleyici start başına bir kez kurulur.
+      _adapterSub ??= FlutterBluePlus.adapterState.listen((s) {
+        if (s != BluetoothAdapterState.on && _running) {
+          debugPrint('$_logTag BT adapter=$s → scanner sıfırlandı.');
+          _running = false;
+          _sub?.cancel();
+          _sub = null;
+        }
+      });
+
       debugPrint('$_logTag başladı (self=$_selfAnonId)');
       return true;
     } catch (e, st) {
@@ -146,7 +163,15 @@ class ContactBleScanner {
   }
 
   Future<void> stop() async {
-    if (!_running) return;
+    // Adapter dinleyicisini her durumda temizle (BT-off'ta _running düşmüş
+    // olabilir; o yüzden _running guard'ının dışında).
+    await _adapterSub?.cancel();
+    _adapterSub = null;
+    if (!_running) {
+      await _sub?.cancel();
+      _sub = null;
+      return;
+    }
     await _safeStopScan();
     await _sub?.cancel();
     _sub = null;

@@ -344,8 +344,14 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // Platform.isAndroid kontrolü advertiser.start içinde de var; burada
       // stop'u çağırmak her iki platform için güvenli (Android zaten no-op).
       if (Platform.isIOS) {
-        ref.read(contactAdvertiserProvider).stop();
-        ref.read(contactBleScannerProvider).stop();
+        // BUG FIX (multi-agent bug-avı): stop() Future'larını başıboş bırakma.
+        // Lifecycle callback senkron olduğu için await edemiyoruz; en azından
+        // unawaited(Future.wait(...)) ile aynı microtask turunda dispatch et —
+        // iOS suspend öncesi advertise/scan'in durması Apple kuralı.
+        unawaited(Future.wait([
+          ref.read(contactAdvertiserProvider).stop(),
+          ref.read(contactBleScannerProvider).stop(),
+        ]));
         // iOS arka planda contact yok → UI göstergelerini düşür.
         state = state.copyWith(
           contactAdvertising: false,

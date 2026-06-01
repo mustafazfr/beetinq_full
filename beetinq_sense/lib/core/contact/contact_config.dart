@@ -41,6 +41,13 @@ const int kContactEvictionSeconds = 20;
 /// API trafiği patlamaz ama dashboard hızlı canlanır).
 const int kContactReReportIntervalSeconds = 15;
 
+/// Evict için RSSI eşiği — tetik eşiğinden (kContactRssiThreshold = -80) DAHA
+/// DÜŞÜK (histerezis). Tetik "> -80"de olur; evict ancak sinyal "-85'in altına"
+/// düşünce teması koparır. Aradaki 5 dB ölü bant, -80 sınırında gezinen cihazda
+/// "tetikle → evict → yeni encounter → tekrar tetikle" flip-flop'unu (ve buna
+/// bağlı reportedContactCount şişmesini) önler. Multi-agent bug-avı bulgusu.
+const int kContactEvictRssiThreshold = -85;
+
 /// Device hash'ini (hex string) iBeacon major/minor çiftine çevirir.
 ///
 /// Hash SHA-256 hex (64 char). İlk 8 char (4 byte) alınır, 32-bit unsigned
