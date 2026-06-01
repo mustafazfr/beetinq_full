@@ -48,6 +48,19 @@ const int kContactReReportIntervalSeconds = 15;
 /// bağlı reportedContactCount şişmesini) önler. Multi-agent bug-avı bulgusu.
 const int kContactEvictRssiThreshold = -85;
 
+/// Resume penceresi (saniye): bir encounter ZAMAN AŞIMIYLA (paket gelmedi →
+/// muhtemelen iPhone dropout) silindikten sonra, bu süre içinde aynı cihaz
+/// tekrar görünürse YENİ temas açılmaz; AYNI temas (aynı clientEventId +
+/// firstSeen + reported durumu) devam ettirilir → sayaç şişmez. Dropout'ta
+/// "sürekli contact sayma" sorununu çözer. RSSI ile (uzaklaşma) silinen
+/// encounter'lar resume EDİLMEZ — gerçek ayrılış sayılır.
+const int kContactResumeSeconds = 120;
+
+/// RSSI ile evict (uzaklaşma) için minimum örnek sayısı. Dropout/seyrek veride
+/// tek-iki zayıf/sıçramalı okuma teması koparmasın diye: son pencerede en az bu
+/// kadar örnek yoksa RSSI-evict UYGULANMAZ (yalnız zaman aşımı evict eder).
+const int kContactMinSamplesForRssiEvict = 3;
+
 /// Device hash'ini (hex string) iBeacon major/minor çiftine çevirir.
 ///
 /// Hash SHA-256 hex (64 char). İlk 8 char (4 byte) alınır, 32-bit unsigned

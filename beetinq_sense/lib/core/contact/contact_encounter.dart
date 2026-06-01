@@ -51,27 +51,34 @@ class ContactEncounter {
     return sum / samples.length;
   }
 
-  /// Verilen zaman penceresinin (örn. son 60s) içindeki örneklerin
-  /// ortalama RSSI'si ve sayısı.
+  /// Verilen zaman penceresinin (örn. son 10s) içindeki örneklerin
+  /// ortalama + MEDYAN RSSI'si ve örnek sayısı.
+  ///
+  /// Medyan, tek bir uç okumanın (iPhone'un sık verdiği zayıf/sıçramalı RSSI)
+  /// eşik kararlarını (tetik > -80 / evict <= -85) sallamasını engeller — bu
+  /// yüzden controller kararları `avg` yerine `median` üzerinden alır. `avg`
+  /// hâlâ döner (backend'e raporlanan ortalama RSSI için kullanılıyor).
   ///
   /// Sample yoğunluğundan bağımsız: low-power scan modunda dakikada 12 sample
   /// gelse de, normal modda 200 sample gelse de eşik kontrolü doğru çalışır.
-  /// Önceki tarih: `rssiSamples.sublist(n - window.inSeconds)` — "1 sample/sn"
-  /// varsayıyordu ve scan period değiştikçe yanlış pencere kesiyordu.
-  ({double avg, int count}) recentWindow(Duration window) {
-    if (samples.isEmpty) return (avg: 0, count: 0);
+  ({double avg, double median, int count}) recentWindow(Duration window) {
+    if (samples.isEmpty) return (avg: 0, median: 0, count: 0);
     final cutoff = lastSeen.subtract(window);
-    int sum = 0;
-    int count = 0;
+    final inWindow = <int>[];
     // Listeye kronolojik eklendiği için tersten yürüyüp ilk eski sample'a
     // gelince durmak yeterli (O(window) vs O(N)).
     for (int i = samples.length - 1; i >= 0; i--) {
       final s = samples[i];
       if (s.ts.isBefore(cutoff)) break;
-      sum += s.rssi;
-      count++;
+      inWindow.add(s.rssi);
     }
-    if (count == 0) return (avg: 0, count: 0);
-    return (avg: sum / count, count: count);
+    if (inWindow.isEmpty) return (avg: 0, median: 0, count: 0);
+    final sum = inWindow.fold<int>(0, (a, b) => a + b);
+    final sorted = List<int>.from(inWindow)..sort();
+    final mid = sorted.length ~/ 2;
+    final median = sorted.length.isOdd
+        ? sorted[mid].toDouble()
+        : (sorted[mid - 1] + sorted[mid]) / 2.0;
+    return (avg: sum / inWindow.length, median: median, count: inWindow.length);
   }
 }

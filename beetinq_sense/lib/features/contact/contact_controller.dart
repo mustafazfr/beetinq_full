@@ -63,6 +63,13 @@ class ContactState {
 /// edilen davranış (kısa süreli karşılaşmalar zaten contact sayılmaz).
 class ContactController extends Notifier<ContactState> {
   final Map<String, ContactEncounter> _encounters = {};
+
+  /// Dropout resume hafızası (kullanıcı isteği + bug-avı): ZAMAN AŞIMIYLA
+  /// (paket gelmedi → iPhone dropout) evict edilen encounter'lar buraya taşınır.
+  /// [kContactResumeSeconds] içinde aynı cihaz tekrar görünürse aynı temas
+  /// devam ettirilir (yeni clientEventId açılmaz → ekran sayacı ve backend kaydı
+  /// şişmez). RSSI ile (gerçek uzaklaşma) evict edilenler buraya KONMAZ.
+  final Map<String, ContactEncounter> _resumable = {};
   static const _uuid = Uuid();
 
   /// Raporlayan telefonun o anki stand'ı. BeaconController konum değişince
@@ -99,31 +106,40 @@ class ContactController extends Notifier<ContactState> {
     _currentLocationName = newLocation;
   }
 
-  /// BeaconController ranging callback'inden çağrılır.
+  /// BeaconController scanner callback'inden çağrılır.
   void onEncounterEvent(String anonId, int rssi, DateTime now) {
     final sample = RssiSample(rssi, now);
     final existing = _encounters[anonId];
     if (existing == null) {
-      _encounters[anonId] = ContactEncounter(
-        seenAnonId: anonId,
-        firstSeen: now,
-        lastSeen: now,
-        clientEventId: _uuid.v4(),
-        samples: [sample],
-        locationName: _currentLocationName,
-      );
-    } else {
-      existing.lastSeen = now;
-      existing.samples.add(sample);
-      // Örneklem balonlaşmasını engelle: son 10 dk'lık worst-case ~600 örnek.
-      // Aşarsa baştan kırp.
-      const maxSamples = 600;
-      if (existing.samples.length > maxSamples) {
-        existing.samples.removeRange(
-          0,
-          existing.samples.length - maxSamples,
+      // (A) DROPOUT RESUME: bu cihaz yakın geçmişte ZAMAN AŞIMIYLA silinmiş mi?
+      // (iPhone'da BLE paket kaybı sık → encounter dropout'ta evict oluyordu →
+      // tekrar görününce yeni clientEventId açılıp "sürekli contact" sayılıyordu.)
+      // Resume penceresi içindeyse aynı teması sürdür: clientEventId + firstSeen
+      // + reportedAsContact KORUNUR → backend tek kayda upsert, sayaç artmaz.
+      final resumed = _resumable.remove(anonId);
+      final gapSec =
+          resumed == null ? -1 : now.difference(resumed.lastSeen).inSeconds;
+      if (resumed != null && gapSec <= kContactResumeSeconds) {
+        resumed.lastSeen = now;
+        _appendSample(resumed, sample);
+        _encounters[anonId] = resumed;
+        debugPrint(
+          '🔁 [ContactController] Dropout resume: $anonId (boşluk=${gapSec}s, '
+          'aynı temas — sayaç artmaz)',
+        );
+      } else {
+        _encounters[anonId] = ContactEncounter(
+          seenAnonId: anonId,
+          firstSeen: now,
+          lastSeen: now,
+          clientEventId: _uuid.v4(),
+          samples: [sample],
+          locationName: _currentLocationName,
         );
       }
+    } else {
+      existing.lastSeen = now;
+      _appendSample(existing, sample);
     }
 
     _evict(now);
@@ -145,8 +161,10 @@ class ContactController extends Notifier<ContactState> {
     final recent = e.recentWindow(
       const Duration(seconds: kContactDurationSeconds),
     );
-    // RSSI negatif; "> -80" sinyal güçlü demek. count > 0 zaten sağlanıyor.
-    if (recent.avg <= kContactRssiThreshold) return;
+    // (C) MEDYAN ile karar: iPhone'un tek-tük zayıf/sıçramalı RSSI okuması tetik
+    // kararını sallamasın. RSSI negatif; medyan "> -80" ise sinyal güçlü
+    // (~2m içinde) demek. count > 0 zaten sağlanıyor.
+    if (recent.median <= kContactRssiThreshold) return;
 
     // İlk tetikleme mi yoksa periyodik re-report mı?
     final firstReport = !e.reportedAsContact;
@@ -163,7 +181,7 @@ class ContactController extends Notifier<ContactState> {
     debugPrint(
       '✅ [ContactController] Contact ${firstReport ? "tetiklendi" : "güncellendi"}: '
       '${e.seenAnonId} süre=${e.duration.inSeconds}s '
-      'avgRssi=${recent.avg.toStringAsFixed(1)}',
+      'medianRssi=${recent.median.toStringAsFixed(1)} avgRssi=${recent.avg.toStringAsFixed(1)}',
     );
 
     try {
@@ -183,29 +201,55 @@ class ContactController extends Notifier<ContactState> {
   }
 
   void _evict(DateTime now) {
-    final threshold = Duration(seconds: kContactEvictionSeconds);
+    final timeout = Duration(seconds: kContactEvictionSeconds);
     final window = const Duration(seconds: kContactDurationSeconds);
-    _encounters.removeWhere((_, e) {
-      // 1) Süre: bu kadar süredir hiç görülmedi → koptu.
-      if (now.difference(e.lastSeen) > threshold) return true;
-      // 2) RSSI (uzaklaşma): son pencere ortalaması yakınlık eşiğinin (-80 dBm
-      //    ~2m) altına düştüyse cihaz UZAKLAŞTI demektir → temas sonlandır.
-      //    "Yan odadan zayıf sinyalle temas devam etmesin" (kullanıcı kararı).
-      //    Yeni başlayan encounter'ı (henüz pencere dolmamış) erken silmemek
-      //    için yalnızca yeterli örnek + süre varsa uygula.
+
+    final timedOut = <String>[]; // dropout → resume edilebilir
+    final departed = <String>[]; // RSSI uzaklaşma → gerçek ayrılış
+    _encounters.forEach((id, e) {
+      // 1) ZAMAN AŞIMI: bu kadar süredir hiç paket gelmedi. Çoğu zaman gerçek
+      //    ayrılış değil, BLE/iPhone dropout. Silinir AMA _resumable'a taşınır →
+      //    kContactResumeSeconds içinde tekrar görünürse aynı temas devam eder.
+      if (now.difference(e.lastSeen) > timeout) {
+        timedOut.add(id);
+        return;
+      }
+      // 2) RSSI (uzaklaşma): pencere dolu VE yeterli örnek (medyan anlamlı olsun)
+      //    VE MEDYAN sinyal evict eşiğinin (-85) altındaysa → GERÇEK ayrılış.
+      //    Silinir ve resume EDİLMEZ (sonraki görüşme yeni temas / yeni stand →
+      //    stand-bazlı temas sayımı korunur). Medyan + min örnek: iPhone'un
+      //    tek-tük zayıf okuması teması yanlışlıkla koparmasın (histerezis -85).
       if (e.duration >= window) {
         final recent = e.recentWindow(window);
-        // BUG FIX (multi-agent bug-avı): evict eşiği TETİK eşiğinden (-80) daha
-        // düşük (-85, histerezis). Aksi halde -80 sınırında gezen cihaz
-        // tetiklen → evict → yeni encounter flip-flop'una girip
-        // reportedContactCount'u şişiriyordu. -85..-80 ölü bandında encounter
-        // KORUNUR ama yeniden tetiklenmez.
-        if (recent.count > 0 && recent.avg <= kContactEvictRssiThreshold) {
-          return true;
+        if (recent.count >= kContactMinSamplesForRssiEvict &&
+            recent.median <= kContactEvictRssiThreshold) {
+          departed.add(id);
         }
       }
-      return false;
     });
+
+    for (final id in timedOut) {
+      _resumable[id] = _encounters.remove(id)!; // dropout → resume havuzuna
+    }
+    for (final id in departed) {
+      _encounters.remove(id); // gerçek ayrılış → resume YOK
+    }
+
+    // Bayatlamış resume kayıtlarını temizle: resume penceresinden uzun süredir
+    // dönmediyse cihaz gerçekten gitti, RAM'i şişirmesin.
+    _resumable.removeWhere(
+      (_, e) => now.difference(e.lastSeen).inSeconds > kContactResumeSeconds,
+    );
+  }
+
+  void _appendSample(ContactEncounter e, RssiSample s) {
+    e.samples.add(s);
+    // Örneklem balonlaşmasını engelle: worst-case ~600 örnek. Aşarsa baştan kırp
+    // (recentWindow zaman penceresiyle çalıştığı için eski örnekleri atmak güvenli).
+    const maxSamples = 600;
+    if (e.samples.length > maxSamples) {
+      e.samples.removeRange(0, e.samples.length - maxSamples);
+    }
   }
 
   /// Test ve UI için (read-only snapshot).
@@ -215,6 +259,7 @@ class ContactController extends Notifier<ContactState> {
   /// Opt-out durumunda RAM'i temizle (Task 1.5.8'de settings_page çağırır).
   void reset() {
     _encounters.clear();
+    _resumable.clear();
     state = const ContactState();
   }
 }
