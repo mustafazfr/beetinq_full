@@ -175,4 +175,48 @@ void main() {
       expect(restored.createdAt, isNotNull);
     });
   });
+
+  // 2026-06-10 bug avı: STICKINESS (BUG-5) hiç test edilmemişti — saha
+  // demosunda flicker önleme buna dayanıyor, davranışı kilitle.
+  group('findNearestMatch — stickiness (BUG-5)', () {
+    test('near-tie durumunda mevcut konuma yapışır (flicker önleme)', () {
+      final engine = FingerprintEngine();
+      // İki konum neredeyse eşit mesafede: A skoru ~1.0, B skoru ~0.0.
+      // stickyMargin=2.0 → A (mevcut konum) winner B'ye yeterince yakın.
+      engine.addFingerprint(_fp('A', {'b1': -61, 'b2': -70}));
+      engine.addFingerprint(_fp('B', {'b1': -60, 'b2': -70}));
+      final m = engine.findNearestMatch(
+        {'b1': -60, 'b2': -70}, // B'ye tam eşit, A'ya 1 birim uzak
+        currentLocation: 'A',
+      );
+      expect(m!.fingerprint.name, 'A', reason: 'near-tie → mevcut konum korunmalı');
+    });
+
+    test('mevcut konum MUTLAK kötüleşince yapışma BIRAKILIR (uzaklaşma)', () {
+      final engine = FingerprintEngine();
+      // A skoru 9.0 (threshold/2=7.5 ÜSTÜ) ama winner B'ye (skor 8.0)
+      // stickyMargin (2.0) içinde "yakın" — eski bug'da yapışıp kalırdı.
+      // Mutlak koşul: 9.0 < 7.5 sağlanmaz → yapışma yok, B kazanır.
+      engine.addFingerprint(_fp('A', {'b1': -69, 'b2': -69})); // diff 9,9 → 9.0
+      engine.addFingerprint(_fp('B', {'b1': -52, 'b2': -52})); // diff 8,8 → 8.0
+      final m = engine.findNearestMatch(
+        {'b1': -60, 'b2': -60},
+        currentLocation: 'A',
+        threshold: 15.0,
+        stickyMargin: 2.0,
+      );
+      expect(m!.fingerprint.name, 'B',
+          reason: 'mevcut konum mutlak kötü (>threshold/2) → yapışma bırakılmalı');
+    });
+
+    test('currentLocation aday listesinde yoksa normal winner döner', () {
+      final engine = FingerprintEngine();
+      engine.addFingerprint(_fp('A', {'b1': -60}));
+      final m = engine.findNearestMatch(
+        {'b1': -60},
+        currentLocation: 'Silinmiş-Stand',
+      );
+      expect(m!.fingerprint.name, 'A');
+    });
+  });
 }
