@@ -110,21 +110,19 @@ class FingerprintEngine {
     _knownFingerprints.removeWhere((fp) => fp.id == id);
   }
 
-  /// KNN (K-Nearest Neighbors) Mantığı - K=3, Inverse-Distance Weighted Voting
+  /// 1-NN PER LOCATION + STICKINESS (KNN ailesinin sadeleşmiş hâli)
   ///
-  /// 1. Tüm fingerprint'lere olan Öklid mesafesini hesapla
-  /// 2. En yakın K=3 tanesini al (hepsi threshold altında olmalı)
-  /// 3. Her aday için 1/(score+ε) ağırlığı hesapla; aynı konum adı altında topla.
-  ///    Sigma'ya eklenen ε = 0.5 (sıfıra bölme koruması + tam eşleşme aşırı
-  ///    dominasyonunu yumuşatma).
-  /// 4. En yüksek ağırlık toplamına sahip konum adı kazanır.
+  /// 1. Her KONUM (base ad, '#N' suffix'i soyulmuş) kendi EN İYİ (min Öklid
+  ///    mesafeli) snapshot'ıyla temsil edilir.
+  /// 2. Threshold altı konumlar arasında en düşük mesafeli kazanır.
+  /// 3. Stickiness: mevcut konum, kazanana [stickyMargin] kadar yakın VE
+  ///    mutlak olarak hâlâ iyiyse (skor < threshold/2) korunur → flicker yok.
   ///
-  /// Eşit oy (her birinde 1 aday) durumunda en düşük skorlu aday otomatik
-  /// kazanır çünkü ağırlığı en yüksek.
-  ///
-  /// İyileştirme: önceki version eşit oy bazlı majority vote yapıyordu;
-  /// yakın aday ile uzak aday eşit söz hakkına sahipti. Sentetik testte
-  /// 1m aralıklı noktalarda %66 → ~%80+ accuracy hedefi.
+  /// TARİHÇE: kod k=3 weighted-vote KNN olarak başladı; snapshot sayısı fazla
+  /// olan stand top-K'yı domine ettiği için ("her yerde cam/kapı" bias'ı)
+  /// 1-NN-per-location'a evrildi — detay aşağıdaki PER-LOCATION BEST yorumunda.
+  /// [k] parametresi API geriye-uyumluluğu için duruyor, KULLANILMIYOR
+  /// (dönüş değerindeki `k` alanı artık "değerlendirilen konum sayısı").
   FingerprintMatch? findNearestMatch(
     Map<String, int> currentScan, {
     double threshold = 15.0,
