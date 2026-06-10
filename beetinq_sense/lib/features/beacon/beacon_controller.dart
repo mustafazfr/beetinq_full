@@ -569,7 +569,17 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
           state = state.copyWith(
             error: 'Bluetooth kapatıldı.',
             errorType: 'bluetooth_off',
+            contactAdvertising: false,
+            contactScanning: false,
           );
+          // BUG FIX (2026-06-10 — BT toggle sonrası ölü advertiser): BT
+          // kapanınca OS yayını öldürür ama ContactAdvertiser._isRunning true
+          // KALIYORDU; BT açılınca initSdk → advertiser.start() baştaki
+          // "zaten çalışıyor" guard'ına takılıp yayın bir daha BAŞLAMIYORDU
+          // (scanner'daki 2026-06-01 bug'ının advertiser ikizi — scanner kendi
+          // adapter dinleyicisiyle kendini sıfırlıyor, advertiser'ın dinleyicisi
+          // yok). stop() bayrağı düşürür → BT-on'daki initSdk gerçekten başlatır.
+          ref.read(contactAdvertiserProvider).stop().ignore();
         } else if (btState == BluetoothState.stateOn &&
             state.errorType == 'bluetooth_off') {
           state = state.copyWith(error: null, errorType: null);
