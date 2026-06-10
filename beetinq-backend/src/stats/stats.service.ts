@@ -126,6 +126,11 @@ export class StatsService {
     for (const agg of fpAggregates) {
       const stand = standMap.get(agg.locationName);
       if (!stand) continue; // Admin paneli bu stand'ı henüz tanımlamamış
+      // BUG FIX (2026-06-10): yerleştirilmemiş stand'lar sentinel (-1,-1)
+      // taşır; panel harita çiziminde bunları atlıyor ama heatmap atlamıyordu
+      // → oda dışında, köşede "hayalet ısı lekesi" çıkıyordu. Konumu olmayan
+      // stand heatmap'e katılmaz (admin haritaya koyunca dahil olur).
+      if (stand.x < 0 || stand.y < 0) continue;
       fpPoints.push({
         x: stand.x,
         y: stand.y,
