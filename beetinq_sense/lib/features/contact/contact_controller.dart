@@ -11,8 +11,9 @@ class ContactState {
   final int activeEncounterCount;     // Şu an görünen (henüz evict olmamış) cihaz sayısı
   final int reportedContactCount;     // Bu oturumda contact eşiği aşıp raporlanan cihaz sayısı
   final DateTime? lastContactAt;
-  /// KALİBRASYON: en güçlü aktif encounter'ın son pencere medyan RSSI'si (dBm).
-  /// Saha testinde eşiği gerçek mesafe-RSSI ile ayarlamak için UI'da canlı gösterilir.
+  /// KALİBRASYON: en son görülen Beetinq yayınının HAM RSSI'si (dBm) — zayıf
+  /// paketler (encounter oluşturmayanlar) dahil. Saha testinde eşiği gerçek
+  /// mesafe-RSSI ile ayarlamak için UI'da canlı gösterilir.
   final int? nearestRssi;
 
   const ContactState({
@@ -85,8 +86,23 @@ class ContactController extends Notifier<ContactState> {
   String? _currentLocationName;
 
   /// [_currentLocationName]'in en son ne zaman bu değere geçtiği. Stand'da
-  /// "yeterince kalındı mı" (commit) ve "ayrıldı mı" (leave) kararları buna göre.
+  /// "yeterince kalındı mı" (commit) kararı buna göre.
   DateTime? _currentStandSince;
+
+  /// Telefonun her stand'ı EN SON ne zaman gördüğü (konum == stand iken gelen
+  /// son paket zamanı). Stand'dan AYRILMA (leave) kararı buna göre verilir.
+  /// BUG FIX (2026-06-10): leave eskiden [_currentStandSince]'e bakıyordu;
+  /// konum "B ↔ null" flap'leyince (fingerprint↔trilaterasyon geçişi) since
+  /// her flap'te sıfırlanıp leave HİÇ tetiklenmiyordu → segment, ayrılınan
+  /// stand'a süresiz yapışık kalıyordu. Bu harita flap'lerden etkilenmez.
+  final Map<String, DateTime> _lastAtLocation = {};
+
+  /// Çiftin KESİNTİSİZ temasının başlangıcı. Segment rotasyonunda ve dropout
+  /// resume'da KORUNUR, yalnız yepyeni karşılaşmada sıfırlanır. Stand dwell
+  /// hesabı segment'in firstSeen'i yerine bunu kullanır — yoksa stand→stand
+  /// geçişte 45sn dwell fiilen 60sn'e şişiyordu (15sn leave grace + yeni
+  /// segmentin sıfırlanan saati).
+  final Map<String, DateTime> _pairContactSince = {};
 
   /// Eşik aşıldığında çağrılır (Task 1.5.7 — ApiService.sendContactEvent).
   /// Set edilmediyse no-op; encounter yine reportedAsContact=true olarak
@@ -121,6 +137,11 @@ class ContactController extends Notifier<ContactState> {
   void onEncounterEvent(String anonId, int rssi, DateTime now) {
     final sample = RssiSample(rssi, now);
 
+    // Stand segmentasyonu (leave kararı) için: telefonun şu anki standını
+    // "en son bu anda gördüm" olarak işaretle (bkz. _lastAtLocation).
+    final curLoc = _currentLocationName;
+    if (curLoc != null) _lastAtLocation[curLoc] = now;
+
     // SAHA BULGUSU (2026-06-07): ZAYIF paket bir encounter'ı OLUŞTURMAZ/SÜRDÜRMEZ.
     // Uzaktaki telefon (ör. -96 dBm) seyrek paketlerle gelince: 10sn'de 3 örnek
     // dolmadığı için RSSI-evict tetiklenmiyor ama o seyrek paket 20sn timeout'u
@@ -130,7 +151,23 @@ class ContactController extends Notifier<ContactState> {
     // RSSI yine aşağıda nearestRssi ile UI'da gösterilir; kalibrasyon bozulmaz.)
     final strongEnough = rssi > kContactEvictRssiThreshold;
     if (strongEnough) {
-      final existing = _encounters[anonId];
+      var existing = _encounters[anonId];
+      // BUG FIX (2026-06-10 — sahte uzun temas): _evict YALNIZ paket gelince
+      // çalışır; ortamda hiç Beetinq paketi yokken (2 cihazlı demo!) timeout
+      // hiç işlemez. Cihaz uzun sessizlikten dönünce ilk pakette lastSeen
+      // güncellenip evict'i atlatıyor, boşluk temasın içine yutuluyordu:
+      // 5sn'lik raporlanmamış görüşme + 10dk sessizlik + dönüş → sahte
+      // "600sn temas" tetikleniyordu (regresyon testi: contact_gap_regression).
+      // Çözüm: boşluk timeout'u aşıyorsa kaçırılmış evict'i ŞİMDİ uygula —
+      // encounter resumable havuzuna taşınır, aşağıdaki (A) bloğu MEVCUT
+      // resume kurallarıyla karar verir (≤45sn → aynı temas, >45sn → yeni).
+      if (existing != null &&
+          now.difference(existing.lastSeen).inSeconds >
+              kContactEvictionSeconds) {
+        _resumable[anonId] = existing;
+        _encounters.remove(anonId);
+        existing = null;
+      }
       if (existing == null) {
         // (A) DROPOUT RESUME: bu cihaz yakın geçmişte ZAMAN AŞIMIYLA silinmiş mi?
         // Resume penceresi içindeyse aynı teması sürdür: clientEventId + firstSeen
@@ -142,6 +179,9 @@ class ContactController extends Notifier<ContactState> {
           resumed.lastSeen = now;
           _appendSample(resumed, sample);
           _encounters[anonId] = resumed;
+          // Resume aynı temasın devamı → kesintisiz başlangıç korunur (kayıt
+          // yoksa — ör. uygulama içi sıfırlama sonrası — firstSeen'e düş).
+          _pairContactSince.putIfAbsent(anonId, () => resumed.firstSeen);
           debugPrint(
             '🔁 [ContactController] Dropout resume: $anonId (boşluk=${gapSec}s, '
             'aynı temas — sayaç artmaz)',
@@ -157,6 +197,8 @@ class ContactController extends Notifier<ContactState> {
             // o standda yeterince durulunca (_maybeSegmentRotate) yazılır.
             locationName: null,
           );
+          // Yepyeni karşılaşma → çiftin kesintisiz temas saati şimdi başlar.
+          _pairContactSince[anonId] = now;
         }
       } else {
         existing.lastSeen = now;
@@ -226,7 +268,8 @@ class ContactController extends Notifier<ContactState> {
     if (firstReport) {
       state = state.copyWith(
         reportedContactCount: state.reportedContactCount + 1,
-        lastContactAt: DateTime.now(),
+        // Olayın gerçek zamanı (sentetik-zamanlı testlerle de tutarlı).
+        lastContactAt: e.lastSeen,
       );
     }
   }
@@ -247,17 +290,26 @@ class ContactController extends Notifier<ContactState> {
       // "—" → stand commit: konum bir stand VE orada yeterince durulduysa.
       if (loc != null && since != null) {
         // Duruş, çiftin BİRLİKTE o standda olduğu andan sayılır (max(stand'a
-        // giriş, temasın başlangıcı)).
-        final dwellStart = since.isAfter(e.firstSeen) ? since : e.firstSeen;
+        // giriş, temasın başlangıcı)). BUG FIX (2026-06-10): "temasın
+        // başlangıcı" SEGMENT'in firstSeen'i değil, çiftin KESİNTİSİZ temas
+        // başlangıcı (_pairContactSince) — segment rotate firstSeen'i
+        // sıfırladığı için stand→stand geçişte 45sn dwell fiilen 60sn oluyordu.
+        final together = _pairContactSince[anonId] ?? e.firstSeen;
+        final dwellStart = since.isAfter(together) ? since : together;
         if (now.difference(dwellStart).inSeconds >= kStandDwellSeconds) {
           _rotateSegment(anonId, newStand: loc, now: now);
         }
       }
     } else {
-      // stand → "—": konum bu stand'dan farklı VE grace doldu (jitter değil).
-      if (loc != e.locationName &&
-          since != null &&
-          now.difference(since).inSeconds >= kStandLeaveGraceSeconds) {
+      // stand → "—": telefon bu stand'ı kStandLeaveGraceSeconds süredir
+      // GÖRMEDİYSE ayrılış say. BUG FIX (2026-06-10 — stand yapışması):
+      // eskiden karar _currentStandSince'e bakıyordu; konum "B ↔ null"
+      // flap'leyince since her flap'te sıfırlanıp leave hiç tetiklenmiyordu.
+      // _lastAtLocation ara konum flap'lerinden etkilenmez: stand'a dönülürse
+      // damga tazelenir (rotate yok), dönülmezse grace dolunca "—"e geçilir.
+      final lastAt = _lastAtLocation[e.locationName];
+      if (lastAt == null ||
+          now.difference(lastAt).inSeconds >= kStandLeaveGraceSeconds) {
         _rotateSegment(anonId, newStand: null, now: now);
       }
     }
@@ -277,12 +329,19 @@ class ContactController extends Notifier<ContactState> {
         debugPrint('⚠️ [ContactController] segment kapatma hatası: $err\n$st');
       }
     }
+    // Tohum örneği: GÜNCEL sinyali temsil etsin diye son pencerenin ortalaması
+    // (tüm geçmişin ortalaması dakikalarca bayat olabilir; pencere boşsa düş).
+    final seed = old.recentWindow(
+      const Duration(seconds: kContactDurationSeconds),
+    );
     _encounters[anonId] = ContactEncounter(
       seenAnonId: anonId,
       firstSeen: now,
       lastSeen: now,
       clientEventId: _uuid.v4(),
-      samples: [RssiSample(old.avgRssi.round(), now)],
+      samples: [
+        RssiSample((seed.count > 0 ? seed.avg : old.avgRssi).round(), now),
+      ],
       locationName: newStand,
     );
     debugPrint(
@@ -336,6 +395,8 @@ class ContactController extends Notifier<ContactState> {
     }
     for (final id in departed) {
       _encounters.remove(id); // gerçek ayrılış → resume YOK
+      // Kesintisiz temas burada biter; sonraki karşılaşma yeni temastır.
+      _pairContactSince.remove(id);
     }
 
     // Bayatlamış resume kayıtlarını temizle: resume penceresinden uzun süredir
@@ -363,6 +424,8 @@ class ContactController extends Notifier<ContactState> {
   void reset() {
     _encounters.clear();
     _resumable.clear();
+    _lastAtLocation.clear();
+    _pairContactSince.clear();
     state = const ContactState();
   }
 }
