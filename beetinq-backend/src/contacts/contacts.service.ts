@@ -152,20 +152,20 @@ export class ContactsService {
       const gapMs = firstSeenAt.getTime() - recent.lastSeenAt.getTime();
       const newLoc = dto.locationName ?? null;
       const oldLoc = recent.locationName ?? null;
-      // TASARIM (kullanıcı kararı: "tek sürekli temas"): stand ayrımı YOK.
-      // Aynı çift, zaman penceresi içindeyse — stand değişse bile — aynı temasın
-      // devamı sayılır ve birleşir. (Per-stand bölme kaldırıldı; konum zıplaması
-      // teması parçalamasın.) gap negatif (örtüşme) veya pencere içinde → devam.
-      if (gapMs <= mergeWindowMs) {
+      // TASARIM (kullanıcı kararı 2026-06-07 — stand segmentasyonu): Birleştirme
+      // STAND-DUYARLI. Aynı çiftin son kaydı, zaman penceresi içinde VE AYNI
+      // stand'daysa birleşir (mobil dropout'un böldüğü aynı-stand parçaları tek
+      // kayda toplanır). FARKLI stand ("—" → A, A → B, A → "—") → birleşME, yeni
+      // kayıt: mobilin ürettiği stand segmentleri ayrı kalsın. (Eskiden "stand
+      // ayrımı yok" idi; segmentasyon bunu geçersiz kıldı.)
+      const sameLoc = newLoc === oldLoc;
+      if (gapMs <= mergeWindowMs && sameLoc) {
         // Bitişi ileri taşı (yeni daha geçse). Süre = bitiş - ilk görülme.
         if (lastSeenAt > recent.lastSeenAt) recent.lastSeenAt = lastSeenAt;
         recent.durationSeconds = Math.round(
           (recent.lastSeenAt.getTime() - recent.firstSeenAt.getTime()) / 1000,
         );
         recent.avgRssi = dto.avgRssi;
-        // Konumsuz başlayan temas stand kazandıysa konumu doldur (ilk dolu
-        // stand "temasın başladığı yer" olarak kalır).
-        if (oldLoc === null && newLoc !== null) recent.locationName = newLoc;
         // BUG FIX (O2): merge'de sampleCount sınırsız birikmesin (kötü niyetli
         // istemci pencere içinde 100000'lik parçalarla şişirebilir). DTO tek-POST
         // sınırıyla (100000) aynı tavanda kelepçele.

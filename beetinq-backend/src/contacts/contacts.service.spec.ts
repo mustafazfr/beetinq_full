@@ -91,7 +91,10 @@ describe('ContactsService.create', () => {
     };
     // 1. findOne (clientEventId) → null; 2. findOne (deviceId+seenAnonId) → recent
     repo.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(recent);
-    const r = await service.create(baseDto({ firstSeenAt: iso(-120), lastSeenAt: iso(-100) }) as never);
+    // AYNI stand ('masa') → stand-duyarlı merge birleştirir.
+    const r = await service.create(
+      baseDto({ firstSeenAt: iso(-120), lastSeenAt: iso(-100), locationName: 'masa' }) as never,
+    );
     expect(r).toMatchObject({ merged: true, id: 3 });
     expect(repo.create).not.toHaveBeenCalled();
     // recent bitişi ileri taşındı, süre güncellendi.
@@ -100,7 +103,7 @@ describe('ContactsService.create', () => {
     expect(saved.durationSeconds).toBeGreaterThan(20); // -200 → -100 ≈ 100s
   });
 
-  it('temporal merge: stand farklı olsa bile zaman-yakınsa birleşir (tek sürekli temas)', async () => {
+  it('temporal merge: stand FARKLI ise zaman-yakın olsa bile birleşMEZ → yeni temas (stand segmentasyonu)', async () => {
     const recent = {
       id: 4,
       firstSeenAt: new Date(iso(-200)),
@@ -113,9 +116,10 @@ describe('ContactsService.create', () => {
     const r = await service.create(
       baseDto({ firstSeenAt: iso(-120), lastSeenAt: iso(-100), locationName: 'masa' }) as never,
     );
-    // Farklı stand → yine merge (per-stand bölme kaldırıldı).
-    expect(r).toMatchObject({ merged: true });
-    expect(repo.create).not.toHaveBeenCalled();
+    // Farklı stand → stand-duyarlı merge birleştirMEZ; mobilin stand segmentleri
+    // ayrı kalsın diye YENİ kayıt açılır.
+    expect((r as { merged?: boolean }).merged).toBeFalsy();
+    expect(repo.create).toHaveBeenCalledTimes(1);
   });
 
   it('temporal merge: pencere dışı (gap>60s) → YENİ temas açılır', async () => {

@@ -8,9 +8,10 @@ import { ContactEvent } from '../contacts/contact-event.entity';
 import { AccuracySample } from '../accuracy/accuracy-sample.entity';
 
 /**
- * StatsService.getContactEvents — yön-bağımsız birleştirme. A→B ve B→A aynı
- * fiziksel temasın iki perspektifi; tek "A ↔ B" satırına birleşmeli. Bu
- * oturumda eklenen "tek sürekli temas" dashboard mantığının regression kilidi.
+ * StatsService.getContactEvents — HER KAYIT BİR OTURUM (2026-06-07 stand
+ * segmentasyonu). Çift birleştirme KALDIRILDI: aynı çiftin birden çok temas
+ * oturumu birden çok satır kalır, her satırın süresi kendi oturumunundur (span
+ * değil). Yön bağımsızlığı yalnız "A ↔ B" gösterimi için (lo/hi sıralı).
  */
 describe('StatsService.getContactEvents', () => {
   let service: StatsService;
@@ -45,9 +46,9 @@ describe('StatsService.getContactEvents', () => {
     service = module.get(StatsService);
   });
 
-  it('A→B ve B→A tek "A ↔ B" satırına birleşir', async () => {
+  it('her kayıt ayrı oturum satırı; süre kendi süresidir (span DEĞİL), yön bağımsız "A ↔ B"', async () => {
     setRows([
-      // A'nın gözünden: A(deviceId) gördü B(seenAnonId)
+      // A'nın gözünden bir oturum
       {
         deviceId: devA,
         seenAnonId: '57db:c31d',
@@ -57,31 +58,29 @@ describe('StatsService.getContactEvents', () => {
         avgRssi: -67,
         locationName: 'masa',
       },
-      // B'nin gözünden: B(deviceId) gördü A(seenAnonId)
+      // B'nin gözünden ayrı bir oturum (artık BİRLEŞMEZ → 2 satır)
       {
         deviceId: devB,
         seenAnonId: 'da9f:52a4',
         firstSeenAt: d(-280),
-        lastSeenAt: d(-100), // daha geç bitiş
+        lastSeenAt: d(-100),
         durationSeconds: 180,
-        avgRssi: -43, // daha güçlü (yakın)
+        avgRssi: -43,
         locationName: 'masa',
       },
     ]);
     const out = await service.getContactEvents();
-    expect(out).toHaveLength(1); // tek birleşik temas
-    const e = out[0];
-    // Çift sıralı (alfabetik): 57db:c31d < da9f:52a4
-    expect([e.reporterAnonId, e.seenAnonId].sort()).toEqual([
-      '57db:c31d',
-      'da9f:52a4',
-    ]);
-    expect(e.eventCount).toBe(2);
-    // Süre = en geç bitiş(-100) - en erken başlangıç(-300) ≈ 200s
-    expect(e.durationSeconds).toBeGreaterThanOrEqual(195);
-    // En yakın (en güçlü) RSSI = -43
-    expect(e.avgRssi).toBe(-43);
-    expect(e.locationName).toBe('masa');
+    expect(out).toHaveLength(2); // birleştirme yok → 2 oturum
+    // İkisi de aynı yön-bağımsız çifti göstermeli (lo/hi sıralı).
+    for (const e of out) {
+      expect([e.reporterAnonId, e.seenAnonId]).toEqual(['57db:c31d', 'da9f:52a4']);
+      expect(e.eventCount).toBe(1); // her satır tek oturum
+    }
+    // Süreler KENDİ oturum süreleri (span 200s DEĞİL): 100 ve 180.
+    expect(out.map((e) => e.durationSeconds).sort((a, b) => a - b)).toEqual([100, 180]);
+    // En yeni (lastSeenAt -100, dur 180) üstte.
+    expect(out[0].durationSeconds).toBe(180);
+    expect(out[0].avgRssi).toBe(-43);
   });
 
   it('farklı çiftler ayrı satır kalır', async () => {

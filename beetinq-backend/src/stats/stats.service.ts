@@ -354,12 +354,14 @@ export class StatsService {
    * - firstSeenAt / lastSeenAt: ISO string (format panelde yapılır).
    * - durationSeconds, avgRssi, locationName: olduğu gibi.
    *
-   * YÖN-BAĞIMSIZ birleştirme (kullanıcı kararı: "tek sürekli temas"):
-   * A→B ve B→A aynı fiziksel temasın iki cihazın gözünden hâli; tek satırda
-   * "A ↔ B" olarak birleştirilir. Aynı çiftin tüm yönlü/parçalı kayıtları
-   * toplanır: süre = en geç bitiş − en erken başlangıç, RSSI = en güçlü (en
-   * yakın an), stand = en baskın konum, eventCount = kaç ham kayıt birleşti.
-   * Böylece dashboard "8 parça" yerine tek temas gösterir. En yeni üstte.
+   * HER KAYIT BİR OTURUM (kullanıcı kararı 2026-06-07 — stand segmentasyonu):
+   * Mobil artık her gerçek temas oturumunu (yakınlaşma → uzaklaşma) ayrı kayıt
+   * olarak üretiyor (ayrı clientEventId). Panel bunları ARTIK BİRLEŞTİRMEZ —
+   * her satır bir oturumdur. Süre = o oturumun KENDİ süresi (boşluklar dahil
+   * DEĞİL). Yön bağımsızlığı yalnızca "A ↔ B" gösterimi için (lo/hi sıralı);
+   * aynı çift birden çok kez temas edebilir → birden çok satır. En yeni üstte.
+   * (Eskiden hepsi tek satıra toplanıp süre = span olarak gösteriliyordu; bu,
+   * 5 ayrı teması "57dk tek sürekli temas" gibi yanlış gösteriyordu.)
    */
   async getContactEvents(from?: string, to?: string) {
     const qb = this.contactsRepository.createQueryBuilder('c');
@@ -369,62 +371,24 @@ export class StatsService {
 
     const toDate = (v: Date | string) => (v instanceof Date ? v : new Date(v));
 
-    // Yön-bağımsız çift anahtarı (sıralı) → birleşik kayıt.
-    const pairs = new Map<
-      string,
-      {
-        anonA: string;
-        anonB: string;
-        firstSeenAt: Date;
-        lastSeenAt: Date;
-        bestRssi: number;
-        locCounts: Record<string, number>;
-        eventCount: number;
-      }
-    >();
-
-    for (const r of rows) {
+    const result = rows.map((r) => {
       const a = this.deviceIdToAnonId(r.deviceId);
       const b = r.seenAnonId;
-      const [lo, hi] = a < b ? [a, b] : [b, a];
-      const key = `${lo}|${hi}`;
+      const [lo, hi] = a < b ? [a, b] : [b, a]; // yön bağımsız "A ↔ B"
       const first = toDate(r.firstSeenAt);
       const last = toDate(r.lastSeenAt);
-      const locKey = r.locationName ?? '';
-      const cur = pairs.get(key);
-      if (!cur) {
-        pairs.set(key, {
-          anonA: lo,
-          anonB: hi,
-          firstSeenAt: first,
-          lastSeenAt: last,
-          bestRssi: r.avgRssi,
-          locCounts: { [locKey]: 1 },
-          eventCount: 1,
-        });
-      } else {
-        if (first < cur.firstSeenAt) cur.firstSeenAt = first;
-        if (last > cur.lastSeenAt) cur.lastSeenAt = last;
-        if (r.avgRssi > cur.bestRssi) cur.bestRssi = r.avgRssi; // negatif → büyük = yakın
-        cur.locCounts[locKey] = (cur.locCounts[locKey] ?? 0) + 1;
-        cur.eventCount++;
-      }
-    }
-
-    const result = [...pairs.values()].map((p) => {
-      // En baskın stand (boş anahtar = konumsuz).
-      const dom = Object.entries(p.locCounts).sort((x, y) => y[1] - x[1])[0][0];
       return {
-        reporterAnonId: p.anonA, // UI alan adları korundu; artık yön-bağımsız çift
-        seenAnonId: p.anonB,
-        firstSeenAt: p.firstSeenAt.toISOString(),
-        lastSeenAt: p.lastSeenAt.toISOString(),
-        durationSeconds: Math.round(
-          (p.lastSeenAt.getTime() - p.firstSeenAt.getTime()) / 1000,
-        ),
-        avgRssi: Math.round(p.bestRssi),
-        locationName: dom === '' ? null : dom,
-        eventCount: p.eventCount,
+        reporterAnonId: lo,
+        seenAnonId: hi,
+        firstSeenAt: first.toISOString(),
+        lastSeenAt: last.toISOString(),
+        // O OTURUMUN kendi süresi (span değil) — backend kaydındaki gerçek süre.
+        durationSeconds:
+          r.durationSeconds ??
+          Math.round((last.getTime() - first.getTime()) / 1000),
+        avgRssi: Math.round(r.avgRssi),
+        locationName: r.locationName ?? null,
+        eventCount: 1, // her satır tek oturum
       };
     });
     // En yeni üstte.
