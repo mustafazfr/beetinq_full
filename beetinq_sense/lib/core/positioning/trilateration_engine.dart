@@ -158,6 +158,11 @@ class TrilaterationEngine {
   /// - **2-beacon fallback**: 3+ beacon yoksa weighted midpoint (1/d ağırlık)
   ///   ile yine konum döndürür; kenar/zayıf alanlarda "konum yok" yerine
   ///   yaklaşık konum tercih edilir.
+  /// - **Gauss-Newton refinement**: lineer LS yalnız cebirsel hatayı (dᵢ²
+  ///   farkları) minimize eder; üstüne GERÇEK geometrik residual'ı
+  ///   (‖p−bᵢ‖ − dᵢ) 1/d² ağırlıkla minimize eden birkaç GN iterasyonu
+  ///   eklenir. Gürültüde lineerleştirme bias'ını azaltır (sandbox σ=6:
+  ///   median 1.40→1.25m, p95 3.71→3.00m). Residual artarsa LS'e geri döner.
   /// - **Adaptive EWMA**: hareketsizde α düşük (smooth), hızlı hareket
   ///   varsa α yüksek (responsive); jumpy davranış önlenir.
   Map<String, double>? calculatePosition(
@@ -201,13 +206,18 @@ class TrilaterationEngine {
       return _applyEwma(rawX, rawY);
     }
 
-    // 3) Asıl LS çözümü.
+    // 3) Asıl LS çözümü (lineer — başlangıç tahmini).
     final pos = _weightedLeastSquares(beacons, distances, rssis);
     if (pos == null) return null;
 
+    // `best` ile birlikte HANGİ beacon setinin onu ürettiğini de izle; outlier
+    // atılırsa Gauss-Newton da aynı (pruned) setle çalışmalı.
+    Map<String, double> best = pos;
+    List<BeaconLocation> refineBeacons = beacons;
+    List<double> refineDist = distances;
+
     // 4) Outlier rejection: ≥4 beacon ve initial residual yüksekse en kötü
     // beacon'u at, tekrar hesapla. Tek pass (2. iterasyona girilmez).
-    Map<String, double> best = pos;
     if (beacons.length >= 4) {
       final residuals = <int, double>{};
       for (int i = 0; i < beacons.length; i++) {
@@ -243,12 +253,25 @@ class TrilaterationEngine {
               prunedBeacons, prunedDist, prunedPos['x']!, prunedPos['y']!);
           final oldMeanRes = _meanResidual(
               beacons, distances, pos['x']!, pos['y']!);
-          if (newMeanRes < oldMeanRes) best = prunedPos;
+          if (newMeanRes < oldMeanRes) {
+            best = prunedPos;
+            refineBeacons = prunedBeacons;
+            refineDist = prunedDist;
+          }
         }
       }
     }
 
-    // 5) Adaptive EWMA.
+    // 5) Gauss-Newton refinement (non-lineer geometrik düzeltme).
+    // Lineer LS, daire denklemlerini referans çıkarımıyla LİNEERLEŞTİRİR ve
+    // CEBİRSEL hatayı (dᵢ² farkları) minimize eder — bu, geometrik hatadan
+    // (‖p−bᵢ‖ − dᵢ) sapan, gürültüde yanlı bir çözümdür. LS sonucunu başlangıç
+    // alıp gerçek geometrik residual'ı 1/d² ağırlıkla minimize eden birkaç GN
+    // iterasyonu bias'ı azaltır. Güvenlik: residual artarsa LS sonucuna geri
+    // dönülür (GN asla kötüleştirmez).
+    best = _gaussNewtonRefine(refineBeacons, refineDist, best['x']!, best['y']!);
+
+    // 6) Adaptive EWMA.
     return _applyEwma(best['x']!, best['y']!);
   }
 
@@ -309,6 +332,67 @@ class TrilaterationEngine {
       return null;
     }
     return {'x': rawX, 'y': rawY};
+  }
+
+  /// Gauss-Newton ile geometrik residual minimizasyonu.
+  ///
+  /// Minimize edilen: f(p) = Σ wᵢ (‖p − bᵢ‖ − dᵢ)²,  wᵢ = 1/dᵢ² (LS ile aynı).
+  /// Her iterasyonda Jacobian satırı Jᵢ = (p − bᵢ)/‖p − bᵢ‖; normal denklem
+  /// (JᵀWJ)·Δ = −JᵀW·r çözülür (2×2 analitik invert). Beacon üzerinde
+  /// (‖p−bᵢ‖≈0) Jacobian tekil olur → o satır atlanır.
+  ///
+  /// [x0],[y0] LS başlangıç tahmini. En fazla 6 iterasyon; adım küçülünce
+  /// erken çık. Sonuç başlangıçtan daha kötü residual veriyorsa (ör. kötü
+  /// koşullu geometri) LS sonucu korunur → GN asla regresyon yaratmaz.
+  Map<String, double> _gaussNewtonRefine(
+    List<BeaconLocation> beacons,
+    List<double> distances,
+    double x0,
+    double y0,
+  ) {
+    if (beacons.length < 3) return {'x': x0, 'y': y0};
+
+    double x = x0, y = y0;
+    const maxIter = 6;
+    for (int iter = 0; iter < maxIter; iter++) {
+      double h00 = 0, h01 = 0, h11 = 0; // JᵀWJ
+      double g0 = 0, g1 = 0; // JᵀW·r
+      for (int i = 0; i < beacons.length; i++) {
+        final dx = x - beacons[i].x;
+        final dy = y - beacons[i].y;
+        final r = sqrt(dx * dx + dy * dy);
+        if (r < 1e-6) continue; // beacon üstünde — Jacobian tekil
+        final jx = dx / r;
+        final jy = dy / r;
+        final residual = r - distances[i];
+        final w = 1.0 / max(distances[i] * distances[i], 0.25);
+        h00 += w * jx * jx;
+        h01 += w * jx * jy;
+        h11 += w * jy * jy;
+        g0 += w * jx * residual;
+        g1 += w * jy * residual;
+      }
+      final det = h00 * h11 - h01 * h01;
+      if (det.abs() < 1e-12) break; // tekil → düzeltme yapma
+      // Δ = −(JᵀWJ)⁻¹ · JᵀW·r
+      final stepX = -(h11 * g0 - h01 * g1) / det;
+      final stepY = -(-h01 * g0 + h00 * g1) / det;
+      if (stepX.isNaN || stepY.isNaN || stepX.isInfinite || stepY.isInfinite) {
+        break;
+      }
+      x += stepX;
+      y += stepY;
+      if (stepX.abs() + stepY.abs() < 1e-4) break; // yakınsadı
+    }
+
+    if (x.isNaN || y.isNaN || x.isInfinite || y.isInfinite) {
+      return {'x': x0, 'y': y0};
+    }
+    // Güvenlik: GN sonucu LS başlangıcından daha kötüyse başlangıcı koru.
+    final newRes = _meanResidual(beacons, distances, x, y);
+    final oldRes = _meanResidual(beacons, distances, x0, y0);
+    if (newRes > oldRes) return {'x': x0, 'y': y0};
+    return {'x': x, 'y': y};
   }
 
   double _meanResidual(

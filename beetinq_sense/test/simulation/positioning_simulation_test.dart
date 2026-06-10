@@ -118,7 +118,10 @@ void main() {
       // ignore: avoid_print
       print('\n[Trilateration LS — single-sample]\n$r');
       expect(r.coverage, greaterThanOrEqualTo(0.95));
-      expect(r.median, lessThan(2.5));
+      // Gauss-Newton refinement sonrası kilitlenen değerler (LS-only: 0.77/2.07).
+      // Bu eşikler regresyon korumasıdır — GN kaldırılır/bozulursa kırılır.
+      expect(r.median, lessThan(0.80));
+      expect(r.p95, lessThan(2.05));
     });
 
     test('Trilateration LS — EWMA aktif (3 sample/point, sigma=3)', () {
@@ -143,6 +146,8 @@ void main() {
       // ignore: avoid_print
       print('\n[Trilateration LS — 3 samples + EWMA]\n$r');
       expect(r.coverage, greaterThanOrEqualTo(0.95));
+      // GN sonrası kilit (LS-only: 0.64). Saha hedefi "1m altı" burada sağlanır.
+      expect(r.median, lessThan(0.65));
     });
 
     test('Trilateration LS — gürültülü ortam (sigma=6 dBm)', () {
@@ -164,6 +169,11 @@ void main() {
       final r = _SimResult(errors, gridPoints.length, returned);
       // ignore: avoid_print
       print('\n[Trilateration LS — sigma=6 (gürültülü)]\n$r');
+      // GN'in en çok fark yarattığı senaryo (LS-only: median 1.40 / p95 3.71).
+      // Gürültülü gerçek ortam tezde kritik → kazanımı kilitle.
+      expect(r.coverage, greaterThanOrEqualTo(0.95));
+      expect(r.median, lessThan(1.35));
+      expect(r.p95, lessThan(3.30));
     });
 
     test('Trilateration LS — kenarlar (sadece 2-3 beacon görünür)', () {
