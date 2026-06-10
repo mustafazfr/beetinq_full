@@ -117,14 +117,14 @@ iso_ago() {
 STANDS=(Giriş Sergi-A Sergi-B Cafe)
 SOURCES=(fingerprint trilateration fingerprint fingerprint)
 
-# ── 5. Visit'ler (30 adet, son ~3 saatte) ────────────────────────────────────
-VISIT_COUNT=30
+# ── 5. Visit'ler (80 adet, son ~8 saatte — saatlik trafik grafiği dolu olsun) ──
+VISIT_COUNT=80
 log "5) ${VISIT_COUNT} visit ekleniyor..."
 for ((i=0; i<VISIT_COUNT; i++)); do
   DEV="${DEVICES[$((RANDOM % DEVICE_COUNT))]}"
   STAND="${STANDS[$((RANDOM % 4))]}"
   SRC="${SOURCES[$((RANDOM % 4))]}"
-  MIN_AGO=$((RANDOM % 175 + 5))            # 5–180 dk öncesi
+  MIN_AGO=$((RANDOM % 475 + 5))            # 5–480 dk öncesi (~8 saat)
   DUR=$((RANDOM % 870 + 30))               # 30–900 sn
   ENTER=$(iso_ago "$MIN_AGO" 0)
   EXIT=$(iso_ago "$MIN_AGO" "$DUR")
@@ -141,8 +141,8 @@ for ((i=0; i<VISIT_COUNT; i++)); do
 done
 ok "${VISIT_COUNT} visit eklendi."
 
-# ── 6. Contact event'ler (12 çift) ───────────────────────────────────────────
-CONTACT_COUNT=12
+# ── 6. Contact event'ler (30 çift) ───────────────────────────────────────────
+CONTACT_COUNT=30
 log "6) ${CONTACT_COUNT} contact event ekleniyor..."
 for ((i=0; i<CONTACT_COUNT; i++)); do
   A_IDX=$((RANDOM % DEVICE_COUNT))
@@ -151,7 +151,7 @@ for ((i=0; i<CONTACT_COUNT; i++)); do
   DEV_A="${DEVICES[$A_IDX]}"; DEV_B="${DEVICES[$B_IDX]}"
   PFX="${DEV_B:0:8}"
   SEEN="${PFX:0:4}:${PFX:4:4}"
-  MIN_AGO=$((RANDOM % 175 + 5))
+  MIN_AGO=$((RANDOM % 475 + 5))            # 5–480 dk öncesi (~8 saat)
   DUR=$((RANDOM % 840 + 60))               # 60–900 sn
   FIRST=$(iso_ago "$MIN_AGO" 0)
   LAST=$(iso_ago "$MIN_AGO" "$DUR")
@@ -168,6 +168,33 @@ for ((i=0; i<CONTACT_COUNT; i++)); do
   post /contacts "$BODY" || warn "Contact #$i atlandı"
 done
 ok "${CONTACT_COUNT} contact event eklendi."
+
+# ── 7. Doğruluk (accuracy) örnekleri (40 ölçüm) ──────────────────────────────
+# Mobil "Doğruluk Testi" akışını taklit eder: gerçek stand + sistem tahmini.
+# correct/errorMeters BACKEND'de hesaplanır (stand'ın gerçek x,y'si serverda).
+ACC_COUNT=40
+ASX=(1 2.5 4 1); ASY=(0.5 2 4 4)           # /stands ile birebir koordinatlar
+log "7) ${ACC_COUNT} doğruluk örneği ekleniyor..."
+for ((i=0; i<ACC_COUNT; i++)); do
+  DEV="${DEVICES[$((RANDOM % DEVICE_COUNT))]}"
+  IDX=$((RANDOM % 4))
+  GT="${STANDS[$IDX]}"; GX="${ASX[$IDX]}"; GY="${ASY[$IDX]}"
+  # positionSource: %65 trilaterasyon (x,y → errorMeters), %35 fingerprint
+  if [[ $((RANDOM % 100)) -lt 65 ]]; then SRC="trilateration"; else SRC="fingerprint"; fi
+  # predictedLocation: %82 doğru (== GT), %18 komşu stand (yanlış isabet)
+  if [[ $((RANDOM % 100)) -lt 82 ]]; then
+    PRED="$GT"
+  else
+    PIDX=$((RANDOM % 4)); while [[ "$PIDX" -eq "$IDX" ]]; do PIDX=$((RANDOM % 4)); done
+    PRED="${STANDS[$PIDX]}"
+  fi
+  # tahmini (x,y): gerçek stand etrafında küçük jitter (≈ -1.1..+1.1 m)
+  PX=$(awk -v g="$GX" -v r="$RANDOM" 'BEGIN{printf "%.2f", g + ((r%220)-110)/100}')
+  PY=$(awk -v g="$GY" -v r="$RANDOM" 'BEGIN{printf "%.2f", g + ((r%220)-110)/100}')
+  BODY="{\"deviceId\":\"$DEV\",\"groundTruth\":\"$GT\",\"predictedLocation\":\"$PRED\",\"positionSource\":\"$SRC\",\"predictedX\":${PX},\"predictedY\":${PY}}"
+  post /accuracy "$BODY" || warn "Accuracy #$i atlandı"
+done
+ok "${ACC_COUNT} doğruluk örneği eklendi."
 
 echo
 ok "Mock veri hazır. Paneli aç: ${API%/api}/"

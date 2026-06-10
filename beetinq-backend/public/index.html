@@ -4,27 +4,53 @@
   <meta charset="UTF-8">
   <title>Beetinq Sense — Yönetim Paneli</title>
   <style>
+    /* === Beetinq Sense paneli — sıcak-koyu tema (okunabilirlik revizyonu) ===
+       Tüm id/class adları ve JS aynı; yalnızca görünüm yenilendi. */
+    :root{
+      --bg:#1a1917;            /* sıcak, koyu zemin */
+      --surface:#221f1c;       /* kart/panel */
+      --surface-2:#2a2723;     /* input, hover, ikincil yüzey */
+      --border:#36312b;        /* belirgin kenarlık */
+      --border-soft:#2b2823;   /* ince ayraç */
+      --ink:#f1ebdf;           /* başlıklar (serif) + büyük değerler */
+      --text:#e3ddd0;          /* gövde metni */
+      --text-2:#aaa294;        /* ikincil metin (okunur gri) */
+      --faint:#736c61;         /* silik dipnot */
+      --green:#6cc08f; --blue:#7ea6ee; --purple:#b89df3; --red:#e0594f; --gold:#d8b878;
+      --serif:'Iowan Old Style','Palatino Linotype',Palatino,'Book Antiqua',Georgia,serif;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #0f0f0f; color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body {
+      background: var(--bg); color: var(--text); font-family: var(--sans);
+      line-height: 1.5; -webkit-font-smoothing: antialiased;
+    }
+    ::selection { background: #4a4336; color: #fff; }
+    input[type="date"], input[type="datetime-local"] { color-scheme: dark; }
+    /* Koyu temaya uygun ince scrollbar */
+    *::-webkit-scrollbar { width: 10px; height: 10px; }
+    *::-webkit-scrollbar-thumb { background: #3c3630; border-radius: 6px; border: 2px solid var(--bg); }
+    *::-webkit-scrollbar-track { background: transparent; }
+
     header {
-      padding: 20px 32px;
-      background: #1a1a1a;
-      border-bottom: 1px solid #2a2a2a;
+      padding: 22px 36px;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
     }
-    header h1 { font-size: 18px; font-weight: 600; }
-    header span { font-size: 13px; color: #888; }
-    .container { padding: 24px 32px 64px; }
-    .stats-row { display: flex; gap: 12px; margin-bottom: 24px; flex-wrap: wrap; }
+    header h1 { font-family: var(--serif); font-size: 24px; font-weight: 600; color: var(--ink); letter-spacing: 0.2px; }
+    header span { font-size: 13px; color: var(--text-2); }
+    .container { padding: 28px 36px 72px; max-width: 1540px; margin: 0 auto; }
+    .stats-row { display: flex; gap: 14px; margin-bottom: 28px; flex-wrap: wrap; }
     .stat-card {
-      background: #1a1a1a; border: 1px solid #2a2a2a;
-      border-radius: 12px; padding: 16px 20px; min-width: 150px; flex: 1;
+      background: var(--surface); border: 1px solid var(--border-soft);
+      border-radius: 14px; padding: 18px 22px; min-width: 155px; flex: 1;
     }
-    .stat-card .label { font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
-    .stat-card .value { font-size: 26px; font-weight: 700; }
-    .stat-card.live .value { color: #22c55e; }
+    .stat-card .label { font-size: 11px; color: var(--text-2); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.6px; }
+    .stat-card .value { font-size: 28px; font-weight: 700; color: var(--ink); letter-spacing: 0.3px; }
+    .stat-card.live .value { color: var(--green); }
     .stat-card.live .label::after {
-      content: ' ●'; color: #22c55e;
+      content: ' ●'; color: var(--green);
       animation: pulse 2s infinite;
     }
     @keyframes pulse {
@@ -36,64 +62,67 @@
     @media (max-width: 1100px) { .panels { grid-template-columns: 1fr; } }
     .right-col { display: flex; flex-direction: column; gap: 24px; }
     .panel {
-      background: #1a1a1a; border: 1px solid #2a2a2a;
-      border-radius: 12px; padding: 20px;
+      background: var(--surface); border: 1px solid var(--border-soft);
+      border-radius: 14px; padding: 22px 24px;
     }
     .panel h2 {
-      font-size: 12px; color: #888; margin-bottom: 14px;
-      text-transform: uppercase; letter-spacing: 0.5px;
+      font-family: var(--serif); font-size: 16px; color: var(--ink); font-weight: 600;
+      letter-spacing: 0.2px; text-transform: none;
+      margin: -2px 0 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-soft);
     }
     .map-wrap { position: relative; }
     /* touch-action: none → dokunmatik/tablet'te sürükleme tarayıcı scroll'una
        kapılmasın (Bug R3, harita drag-drop). */
     canvas { display: block; touch-action: none; }
-    #heatmap { border: 1px solid #2a2a2a; border-radius: 8px; cursor: crosshair; }
+    #heatmap { border: 1px solid var(--border); border-radius: 10px; cursor: crosshair; }
 
     .dwell-item {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 10px 0; border-bottom: 1px solid #2a2a2a;
+      padding: 11px 0; border-bottom: 1px solid var(--border-soft);
     }
     .dwell-item:last-child { border-bottom: none; }
-    .dwell-name { font-size: 13px; }
+    .dwell-name { font-size: 13.5px; color: var(--text); }
     .dwell-meta { text-align: right; }
-    .dwell-duration { font-size: 15px; font-weight: 600; color: #3b82f6; }
-    .dwell-count { font-size: 11px; color: #666; margin-top: 2px; }
-    .bar-wrap { margin-top: 5px; height: 4px; background: #2a2a2a; border-radius: 2px; }
-    .bar { height: 4px; background: #3b82f6; border-radius: 2px; }
+    .dwell-duration { font-size: 15px; font-weight: 600; color: var(--blue); }
+    .dwell-count { font-size: 11px; color: var(--faint); margin-top: 2px; }
+    .bar-wrap { margin-top: 6px; height: 5px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+    .bar { height: 5px; background: linear-gradient(90deg, #5a7fce, var(--blue)); border-radius: 3px; }
 
+    /* Butonlar: metin daima açık (inline bg override eden butonlar için güvenli);
+       hover brightness ile çalışır, böylece inline renkli butonlarda da etkili. */
     .btn {
-      background: #3b82f6; color: #fff; border: none;
-      padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 12px;
+      background: #3f6fd1; color: #fff; border: none;
+      padding: 9px 15px; border-radius: 9px; cursor: pointer; font-size: 12.5px; font-weight: 500;
+      font-family: var(--sans); transition: filter .15s, transform .05s;
     }
-    .btn:hover { background: #2563eb; }
-    .btn-red { background: #ef4444; }
-    .btn-red:hover { background: #dc2626; }
-    .btn-green { background: #10b981; }
-    .btn-green:hover { background: #059669; }
-    .btn-ghost { background: transparent; border: 1px solid #333; color: #ccc; }
-    .btn-ghost:hover { background: #222; }
+    .btn:hover { filter: brightness(1.12); }
+    .btn:active { transform: translateY(1px); }
+    .btn-red { background: var(--red); }
+    .btn-green { background: #15a06b; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-2); }
+    .btn-ghost:hover { background: var(--surface-2); color: var(--text); filter: none; }
 
-    .hint { font-size: 11px; color: #555; margin-bottom: 10px; line-height: 1.5; }
+    .hint { font-size: 11.5px; color: var(--faint); margin-bottom: 12px; line-height: 1.6; }
     .stand-list-item {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 8px 0; border-bottom: 1px solid #1f1f1f; font-size: 13px;
+      padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 13.5px; color: var(--text);
     }
     .stand-list-item:last-child { border-bottom: none; }
-    .stand-dot { width: 10px; height: 10px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 8px; }
+    .stand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--green); display: inline-block; margin-right: 9px; }
     .beacon-dot {
       width: 0; height: 0;
       border-left: 6px solid transparent; border-right: 6px solid transparent;
-      border-bottom: 10px solid #a855f7;
+      border-bottom: 10px solid var(--purple);
       display: inline-block; margin-right: 8px; vertical-align: middle;
     }
 
     .filter-bar {
-      display: flex; gap: 10px; align-items: center; margin-bottom: 20px;
-      font-size: 13px; flex-wrap: wrap;
+      display: flex; gap: 10px; align-items: center; margin-bottom: 24px;
+      font-size: 13px; color: var(--text-2); flex-wrap: wrap;
     }
     .filter-bar input[type="date"] {
-      background: #111; border: 1px solid #333; color: #fff;
-      padding: 6px 8px; border-radius: 6px;
+      background: var(--surface); border: 1px solid var(--border); color: var(--text);
+      padding: 7px 10px; border-radius: 8px;
     }
 
     .chart-wrap { position: relative; height: 220px; }
@@ -101,49 +130,76 @@
     .pie-wrap { position: relative; height: 200px; max-width: 240px; margin: 0 auto; }
 
     .pill {
-      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      display: inline-block; padding: 3px 10px; border-radius: 999px;
       font-size: 10px; font-weight: 600; text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .pill-fp { background: rgba(34, 197, 94, 0.2); color: #4ade80; }
-    .pill-tl { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-    .pill-un { background: rgba(156, 163, 175, 0.2); color: #d1d5db; }
+    .pill-fp { background: rgba(108, 192, 143, 0.16); color: #8ad6ab; }
+    .pill-tl { background: rgba(126, 166, 238, 0.16); color: #9bbcf2; }
+    .pill-un { background: rgba(170, 162, 148, 0.16); color: #cfc8bb; }
 
     /* Temas matrisi: kim kiminle ne kadar temas etti (renk = toplam süre) */
     .cmatrix { border-collapse: collapse; font-size: 10px; font-family: ui-monospace, monospace; margin-top: 6px; }
     .cmatrix th, .cmatrix td {
-      border: 1px solid #262626; padding: 5px 7px; text-align: center; min-width: 30px;
+      border: 1px solid var(--border-soft); padding: 6px 8px; text-align: center; min-width: 30px;
     }
-    .cmatrix thead th, .cmatrix tbody th { color: #aaa; font-weight: 600; white-space: nowrap; }
+    .cmatrix thead th, .cmatrix tbody th { color: var(--text-2); font-weight: 600; white-space: nowrap; }
     .cmatrix tbody th { text-align: right; }
-    .cmatrix td { color: #fff; }
-    .cmatrix td.diag { color: #3a3a3a; background: #141414; }
-    .cmatrix td.empty { color: #2e2e2e; }
+    .cmatrix td { color: var(--text); }
+    .cmatrix td.diag { color: #39342d; background: #1d1b18; }
+    .cmatrix td.empty { color: #2e2a25; }
     .matrix-scroll { overflow-x: auto; }
     .contact-pair {
       display: flex; justify-content: space-between; align-items: center;
-      padding: 7px 0; border-bottom: 1px solid #1f1f1f; font-size: 12px;
+      padding: 8px 0; border-bottom: 1px solid var(--border-soft); font-size: 12.5px;
     }
     .contact-pair:last-child { border-bottom: none; }
-    .contact-pair .names { font-family: ui-monospace, monospace; color: #ddd; }
+    .contact-pair .names { font-family: ui-monospace, monospace; color: var(--text); }
     .contact-pair .meta { text-align: right; }
-    .contact-pair .cnt { font-size: 13px; font-weight: 600; color: #a78bfa; }
-    .contact-pair .sub { font-size: 10px; color: #666; margin-top: 1px; }
+    .contact-pair .cnt { font-size: 13px; font-weight: 600; color: var(--purple); }
+    .contact-pair .sub { font-size: 10px; color: var(--faint); margin-top: 1px; }
     /* Temas günlüğü tablosu — "kim kimi ne zaman gördü" okunur listesi */
-    .clog-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid #222; border-radius: 8px; }
+    .clog-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; border: 1px solid var(--border-soft); border-radius: 10px; }
     .clog { border-collapse: collapse; width: 100%; font-size: 11px; }
     .clog thead th {
-      position: sticky; top: 0; background: #161616; color: #888; font-weight: 600;
-      text-align: left; padding: 7px 9px; border-bottom: 1px solid #2a2a2a; white-space: nowrap;
+      position: sticky; top: 0; background: #1d1b18; color: var(--text-2); font-weight: 600;
+      text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
     }
-    .clog tbody td { padding: 6px 9px; border-bottom: 1px solid #1c1c1c; color: #ccc; white-space: nowrap; }
+    .clog tbody td { padding: 7px 10px; border-bottom: 1px solid var(--border-soft); color: var(--text); white-space: nowrap; }
     .clog tbody tr:last-child td { border-bottom: none; }
-    .clog tbody tr:hover td { background: #181818; }
-    .clog .anon { font-family: ui-monospace, monospace; color: #ddd; }
-    .clog .arrow { color: #a78bfa; padding: 0 2px; }
+    .clog tbody tr:hover td { background: var(--surface-2); }
+    .clog .anon { font-family: ui-monospace, monospace; color: var(--text); }
+    .clog .arrow { color: var(--purple); padding: 0 2px; }
     .clog .num { text-align: right; font-variant-numeric: tabular-nums; }
-    .clog .muted { color: #666; }
-    .clog .stand-tag { color: #22c55e; }
+    .clog .muted { color: var(--faint); }
+    .clog .stand-tag { color: var(--green); }
+
+    /* === Konuya göre bölümleme + yapışkan gezinme (yerleşim revizyonu) === */
+    html { scroll-behavior: smooth; }
+    .section-nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      padding: 12px 0; margin-bottom: 18px;
+      background: rgba(26, 25, 23, 0.92); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .section-nav a {
+      font-size: 13px; font-weight: 500; color: var(--text-2); text-decoration: none;
+      padding: 8px 16px; border: 1px solid var(--border); border-radius: 999px;
+      transition: color .15s, background .15s, border-color .15s;
+    }
+    .section-nav a:hover { color: var(--ink); background: var(--surface-2); border-color: #463f37; }
+    .section { margin-bottom: 38px; scroll-margin-top: 72px; }
+    .section-title {
+      font-family: var(--serif); font-size: 20px; font-weight: 600; color: var(--ink);
+      letter-spacing: .2px; margin: 0 0 18px; padding-bottom: 11px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 9px;
+    }
+    /* Paneller artık konu içinde duyarlı bir ızgarada akar; ilişkili olanlar yan yana. */
+    .grid { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); align-items: start; }
+    .grid .span-2 { grid-column: span 2; }
+    @media (max-width: 760px) { .grid .span-2 { grid-column: span 1; } }
   </style>
   <script src="https://unpkg.com/simpleheat@0.4.0/simpleheat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -236,11 +292,18 @@
       </div>
     </div>
 
-    <div class="panels">
+    <!-- Bölüm gezinme çubuğu — sayfada nerede ne olduğu net, tıkla → o bölüme git -->
+    <nav class="section-nav">
+      <a href="#sec-konum">📍 Konum Analizi</a>
+      <a href="#sec-temas">🤝 Temas Analizi</a>
+      <a href="#sec-kurulum">🛠️ Kurulum &amp; Kalibrasyon</a>
+    </nav>
 
-      <!-- SOL: HARİTA + saatlik trafik -->
-      <div style="display:flex;flex-direction:column;gap:24px">
-        <div class="panel">
+    <!-- ===================== KONUM ANALİZİ ===================== -->
+    <section id="sec-konum" class="section">
+      <h2 class="section-title">📍 Konum Analizi</h2>
+      <div class="grid">
+        <div class="panel span-2">
           <h2>Stand Haritası</h2>
           <p class="hint">
             Stand'lar mobilden otomatik gelir (fingerprint kaydı = stand). Haritada sürükleyerek konumlarını düzelt.
@@ -258,6 +321,19 @@
         </div>
 
         <div class="panel">
+          <h2>Konum Kaynağı Dağılımı</h2>
+          <p class="hint">Fingerprint vs Trilateration vs Bilinmeyen ziyaret oranı.</p>
+          <div class="pie-wrap"><canvas id="sourceChart"></canvas></div>
+          <div id="sourceLegend" style="margin-top:10px;font-size:11px;color:#888"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Konum Doğruluğu</h2>
+          <p class="hint">Mobilden "Doğruluk Testi" ölçümleri: fingerprint isabet %, trilaterasyon ortalama/medyan hata (m). Saha doğrulama metriği.</p>
+          <div id="accuracyReport"><p style="color:#555;font-size:13px">Henüz ölçüm yok</p></div>
+        </div>
+
+        <div class="panel">
           <h2>Saatlik Trafik</h2>
           <p class="hint">Her saat dilimi için ziyaret sayısı ve benzersiz cihaz.</p>
           <div class="chart-wrap"><canvas id="hourlyChart"></canvas></div>
@@ -268,23 +344,46 @@
           <p class="hint">Tüm stand'lar üzerinden dwell time histogram'ı.</p>
           <div class="chart-wrap small"><canvas id="dwellHistChart"></canvas></div>
         </div>
-      </div>
-
-      <!-- SAĞ: LİSTELER + grafik kartları -->
-      <div class="right-col">
 
         <div class="panel">
           <h2>Bekleme Süreleri (Stand Bazında)</h2>
           <div id="dwellItems"><p style="color:#555;font-size:13px">Henüz veri yok</p></div>
         </div>
+      </div>
+    </section>
 
-        <div class="panel">
-          <h2>Konum Kaynağı Dağılımı</h2>
-          <p class="hint">Fingerprint vs Trilateration vs Bilinmeyen ziyaret oranı.</p>
-          <div class="pie-wrap"><canvas id="sourceChart"></canvas></div>
-          <div id="sourceLegend" style="margin-top:10px;font-size:11px;color:#888"></div>
+    <!-- ===================== TEMAS ANALİZİ ===================== -->
+    <section id="sec-temas" class="section">
+      <h2 class="section-title">🤝 Temas Analizi</h2>
+      <div class="panel">
+        <h2>Temas Raporu</h2>
+        <div id="contactStats"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
+        <div id="contactDistWrap" style="display:none;margin-top:14px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px">Kişi başı temas sayısı</div>
+              <div class="chart-wrap small"><canvas id="contactDegreeChart"></canvas></div>
+            </div>
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:4px">Temas süresi dağılımı</div>
+              <div class="chart-wrap small"><canvas id="contactDurationChart"></canvas></div>
+            </div>
+          </div>
         </div>
+        <div id="contactStandWrap" style="display:none;margin-top:14px">
+          <div style="font-size:11px;color:#888;margin-bottom:4px">Stand bazlı temas — hangi standda ne kadar yakınlaşma (networking hotspot)</div>
+          <div class="chart-wrap small"><canvas id="contactStandChart"></canvas></div>
+        </div>
+        <div id="contactTopPeople" style="margin-top:14px"></div>
+        <div id="contactLogWrap" style="margin-top:16px"></div>
+        <div id="contactMatrixWrap" style="display:none;margin-top:14px"></div>
+      </div>
+    </section>
 
+    <!-- ===================== KURULUM & KALİBRASYON ===================== -->
+    <section id="sec-kurulum" class="section">
+      <h2 class="section-title">🛠️ Kurulum &amp; Kalibrasyon</h2>
+      <div class="grid">
         <div class="panel">
           <h2>Stand'lar</h2>
           <p class="hint">Elle stand ekle; haritada sürükleyerek yerleştir. (Mobilden fingerprint kaydıyla da otomatik gelir.)</p>
@@ -298,9 +397,12 @@
         </div>
 
         <div class="panel">
-          <h2>Konum Doğruluğu</h2>
-          <p class="hint">Mobilden "Doğruluk Testi" ölçümleri: fingerprint isabet %, trilaterasyon ortalama/medyan hata (m). Saha doğrulama metriği.</p>
-          <div id="accuracyReport"><p style="color:#555;font-size:13px">Henüz ölçüm yok</p></div>
+          <h2>Beacons</h2>
+          <p class="hint">
+            Mobilden otomatik gelir. Haritada sürükle ile yerini düzelt. "Otomatik Yerleştir" tüm beacon'ları 1m'lik grid'e oturtur.
+          </p>
+          <div id="beaconItems"><p style="color:#555;font-size:13px">Henüz beacon yok</p></div>
+          <button class="btn" id="autoLayoutBtn" style="margin-top:10px;background:#10b981;width:100%" onclick="autoLayoutBeacons()">🎯 Otomatik Yerleştir (Grid)</button>
         </div>
 
         <div class="panel">
@@ -314,42 +416,8 @@
           <p class="hint">Mobilden gelen RSSI parmak izleri. Tek tek silinebilir.</p>
           <div id="fingerprintItems"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
         </div>
-
-        <div class="panel">
-          <h2>Temas Raporu</h2>
-          <div id="contactStats"><p style="color:#555;font-size:13px">Yükleniyor…</p></div>
-          <div id="contactDistWrap" style="display:none;margin-top:14px">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-              <div>
-                <div style="font-size:11px;color:#888;margin-bottom:4px">Kişi başı temas sayısı</div>
-                <div class="chart-wrap small"><canvas id="contactDegreeChart"></canvas></div>
-              </div>
-              <div>
-                <div style="font-size:11px;color:#888;margin-bottom:4px">Temas süresi dağılımı</div>
-                <div class="chart-wrap small"><canvas id="contactDurationChart"></canvas></div>
-              </div>
-            </div>
-          </div>
-          <div id="contactStandWrap" style="display:none;margin-top:14px">
-            <div style="font-size:11px;color:#888;margin-bottom:4px">Stand bazlı temas — hangi standda ne kadar yakınlaşma (networking hotspot)</div>
-            <div class="chart-wrap small"><canvas id="contactStandChart"></canvas></div>
-          </div>
-          <div id="contactTopPeople" style="margin-top:14px"></div>
-          <div id="contactLogWrap" style="margin-top:16px"></div>
-          <div id="contactMatrixWrap" style="display:none;margin-top:14px"></div>
-        </div>
-
-        <div class="panel">
-          <h2>Beacons</h2>
-          <p class="hint">
-            Mobilden otomatik gelir. Haritada sürükle ile yerini düzelt. "Otomatik Yerleştir" tüm beacon'ları 1m'lik grid'e oturtur.
-          </p>
-          <div id="beaconItems"><p style="color:#555;font-size:13px">Henüz beacon yok</p></div>
-          <button class="btn" id="autoLayoutBtn" style="margin-top:10px;background:#10b981;width:100%" onclick="autoLayoutBeacons()">🎯 Otomatik Yerleştir (Grid)</button>
-        </div>
-
       </div>
-    </div>
+    </section>
   </div>
 
   <script>
@@ -622,7 +690,10 @@
         summaryData   = await _safeJson(results[6], summaryData);
         hourlyData    = fresh(await _safeJson(results[7], null), hourlyData);
         sourceData    = await _safeJson(results[8], sourceData);
-        dwellHist     = fresh(await _safeJson(results[9], null), dwellHist);
+        // BUG FIX: dwell-distribution bir OBJE döndürür ({total,buckets:[...]}),
+        // dizi değil. fresh() yalnız Array'i geçirdiği için objeyi her seferinde
+        // atıp histogram'ı boş bırakıyordu. Diğer obje endpoint'leri gibi düz al.
+        dwellHist     = await _safeJson(results[9], dwellHist);
         activeNowData = await _safeJson(results[10], activeNowData);
         fingerprints  = fresh(await _safeJson(results[11], null), fingerprints);
         calibration   = fresh(await _safeJson(results[12], null), calibration);
@@ -932,8 +1003,8 @@
         ? ` <span style="color:#22c55e">· ${activeCount} aktif</span>`
         : '';
       wrap.innerHTML =
-        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kiminle ne zaman temas etti (${events.length} temas${activeNote}, en yeni üstte). ` +
-        `Her satır iki cihaz arasındaki tek sürekli temastır (↔ çift yönlü birleşik).</div>` +
+        `<div style="font-size:11px;color:#555;margin-bottom:4px">Temas günlüğü — kim kiminle ne zaman temas etti (${events.length} oturum${activeNote}, en yeni üstte). ` +
+        `Her satır bir temas oturumudur (yakınlaşma→ayrılma); aynı çift birden çok kez temas edebilir (↔ yön bağımsız).</div>` +
         '<div class="clog-scroll"><table class="clog"><thead><tr>' +
         '<th>Temas çifti</th><th>Başlangıç</th><th>Bitiş</th>' +
         '<th class="num">Süre</th><th class="num">En yakın RSSI</th><th>Stand</th>' +
