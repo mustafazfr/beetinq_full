@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Beetinq Sense — A1 Poster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0E2244; --ink-2:#16315f; --paper:#F4F1E8; --card:#FBFAF4;
+    --blue:#2C6BF0; --blue-d:#1B4FC4; --coral:#FF6A3D; --teal:#0FB5A6;
+    --line:#D7D0BE; --muted:#5d6473;
+    --display:'Sora',Georgia,serif; --body:'IBM Plex Sans','Helvetica Neue',sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  @page{ size:594mm 841mm; margin:0; }
+  html,body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body{ font-family:var(--body); color:var(--ink); background:var(--paper); }
+  .ic{ width:1em; height:1em; stroke:currentColor; stroke-width:2; fill:none; stroke-linecap:round; stroke-linejoin:round; display:inline-block; vertical-align:-.12em; }
+
+  .poster{ width:594mm; height:841mm; position:relative; overflow:hidden;
+    background:radial-gradient(circle at 90% -4%, rgba(44,107,240,.07), transparent 38%),
+               radial-gradient(circle at -6% 56%, rgba(15,181,166,.06), transparent 26%), var(--paper);
+    display:flex; flex-direction:column; gap:5mm; padding:11mm 12mm 10mm; }
+
+  /* ÜST BANT */
+  .head{ position:relative; background:var(--ink); color:#fff; border-radius:7mm; padding:13mm 16mm 12mm;
+    overflow:hidden; flex:0 0 auto; box-shadow:0 4mm 16mm rgba(14,34,68,.24); }
+  .head::after{ content:""; position:absolute; right:-34mm; top:-66mm; width:200mm; height:200mm;
+    background:repeating-radial-gradient(circle at center, rgba(255,255,255,.10) 0 .5mm, transparent .5mm 15mm); border-radius:50%; opacity:.5; }
+  .head::before{ content:""; position:absolute; left:-30mm; bottom:-46mm; width:110mm; height:110mm;
+    background:radial-gradient(circle, rgba(44,107,240,.55), transparent 66%); filter:blur(2mm); }
+  .brandrow{ display:flex; align-items:center; gap:9mm; position:relative; z-index:2; }
+  .logo-badge{ width:30mm; height:30mm; border-radius:50%; background:#fff; flex:0 0 auto; display:flex; align-items:center; justify-content:center; box-shadow:0 1.5mm 5mm rgba(0,0,0,.25); }
+  .logo-badge img{ width:24mm; height:24mm; object-fit:contain; }
+  .uni{ font-family:var(--mono); font-size:4.2mm; letter-spacing:.5mm; line-height:1.5; text-transform:uppercase; color:#9db8ff; } .uni b{ color:#fff; font-weight:600; }
+  .kicker{ font-family:var(--mono); font-size:4.2mm; letter-spacing:1.6mm; color:var(--coral); text-transform:uppercase; margin:8mm 0 3mm; position:relative; z-index:2; }
+  h1{ font-family:var(--display); font-weight:800; font-size:20.5mm; line-height:1.03; letter-spacing:-.4mm; position:relative; z-index:2; } h1 .em{ color:#7fa6ff; }
+  .byline{ position:relative; z-index:2; margin-top:8mm; display:flex; flex-wrap:wrap; gap:4mm 7mm; font-size:5mm; color:#d6e0f5; align-items:center; }
+  .byline .who{ font-weight:600; color:#fff; } .byline .sep{ color:#5b78b0; }
+  .byline .adv{ font-family:var(--mono); font-size:4.4mm; color:#fff; background:rgba(255,255,255,.12); padding:2.2mm 5mm; border-radius:30mm; border:.4mm solid rgba(255,255,255,.25); }
+
+  /* AMAÇ */
+  .aim{ display:flex; gap:7mm; align-items:center; flex:0 0 auto; background:var(--card); border:.5mm solid var(--line); border-left:3mm solid var(--coral); border-radius:5mm; padding:6mm 9mm; }
+  .aim .tag{ font-family:var(--mono); font-weight:700; font-size:5mm; color:#fff; background:var(--coral); padding:3mm 5.5mm; border-radius:2.5mm; white-space:nowrap; align-self:flex-start; box-shadow:0 2mm 5mm rgba(255,106,61,.3); }
+  .aim p{ font-family:var(--display); font-weight:500; font-size:7.2mm; line-height:1.3; } .aim p b{ color:var(--blue-d); font-weight:700; }
+
+  /* GİRİŞ bölümü (Proje Konusu / Amaç / Kapsam) */
+  .intro{ flex:0 0 auto; display:grid; grid-template-columns:1.25fr 1fr 1.05fr; gap:6mm; }
+  .icol{ background:var(--card); border:.5mm solid var(--line); border-radius:5mm; padding:6mm 7mm; position:relative; }
+  .icol::before{ content:""; position:absolute; left:0; top:5mm; bottom:5mm; width:1.8mm; border-radius:2mm; background:var(--blue); }
+  .icol.c::before{ background:var(--coral); } .icol.t::before{ background:var(--teal); }
+  .ilab{ font-family:var(--mono); font-weight:700; font-size:4mm; letter-spacing:.8mm; color:var(--blue-d); margin-bottom:4mm; }
+  .icol.c .ilab{ color:var(--coral); } .icol.t .ilab{ color:#0c8478; }
+  .icol p{ font-size:5mm; line-height:1.4; color:var(--ink); } .icol p b{ font-weight:600; color:var(--blue-d); }
+  .icol ul{ list-style:none; margin:0; }
+  .icol li{ font-size:4.7mm; line-height:1.38; padding-left:6mm; position:relative; margin-bottom:2.6mm; }
+  .icol li::before{ content:"▸"; position:absolute; left:0; color:var(--teal); font-weight:700; }
+  .icol li b{ font-weight:600; }
+
+  /* BEKLENEN ÇIKTILAR bandı */
+  .outs{ flex:0 0 auto; background:var(--card); border:.5mm solid var(--line); border-radius:5mm; padding:6mm 7mm;
+         display:grid; grid-template-columns:auto repeat(4,1fr); gap:7mm; align-items:center; }
+  .outs .lead{ font-family:var(--display); font-weight:700; font-size:6mm; line-height:1.1; max-width:40mm; }
+  .outs .lead span{ display:block; font-family:var(--mono); font-size:3.6mm; font-weight:600; color:var(--coral); margin-top:1.5mm; letter-spacing:.4mm; }
+  .out{ display:flex; align-items:center; gap:4mm; }
+  .out .oi{ width:13mm; height:13mm; border-radius:3mm; flex:0 0 auto; display:flex; align-items:center; justify-content:center; background:rgba(44,107,240,.10); color:var(--blue-d); }
+  .out .oi .ic{ font-size:7mm; }
+  .out.t .oi{ background:rgba(15,181,166,.12); color:#0c8478; } .out.c .oi{ background:rgba(255,106,61,.12); color:var(--coral); }
+  .out .ot{ font-weight:600; font-size:4.8mm; line-height:1.2; }
+  .out .ot small{ display:block; font-family:var(--mono); font-weight:500; font-size:3.5mm; color:var(--muted); margin-top:.8mm; }
+
+  /* STATS */
+  .stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:6mm; flex:0 0 auto; }
+  .stat{ background:var(--card); border:.5mm solid var(--line); border-radius:5mm; padding:7mm 7mm 6mm; position:relative; overflow:hidden; }
+  .stat::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:2.6mm; background:var(--blue); }
+  .stat.c::before{ background:var(--coral); } .stat.t::before{ background:var(--teal); }
+  .stat .num{ font-family:var(--display); font-weight:800; font-size:21mm; line-height:.9; letter-spacing:-.6mm; } .stat.c .num{ color:var(--coral); } .stat .num small{ font-size:8.5mm; font-weight:700; }
+  .stat .lab{ margin-top:3mm; font-size:4.5mm; line-height:1.25; color:var(--muted); } .stat .lab b{ color:var(--ink); font-weight:600; }
+
+  /* ANA GÖVDE */
+  .main{ flex:1 1 auto; display:grid; grid-template-columns:1.1fr 1fr; gap:7mm; min-height:0; }
+  .col{ display:flex; flex-direction:column; gap:7mm; min-height:0; }
+  .panel{ background:var(--card); border:.5mm solid var(--line); border-radius:5mm; padding:7mm 7mm 6mm; display:flex; flex-direction:column; }
+  .ptitle{ display:flex; align-items:center; gap:4mm; margin-bottom:5mm; flex:0 0 auto; }
+  .ptitle .dot{ font-family:var(--mono); font-weight:700; font-size:4.2mm; color:#fff; background:var(--ink); padding:1.8mm 3.6mm; border-radius:2mm; letter-spacing:.5mm; }
+  .ptitle h2{ font-family:var(--display); font-weight:700; font-size:7.2mm; } .ptitle .ic{ font-size:6.5mm; color:var(--blue); margin-left:auto; }
+
+  .flow{ display:flex; align-items:stretch; gap:0; }
+  .node{ flex:1; background:#fff; border:.6mm solid var(--line); border-radius:3.5mm; padding:5mm 3mm 4mm; text-align:center; }
+  .node .ni{ font-size:11mm; color:var(--blue); } .node .nm{ font-family:var(--display); font-weight:700; font-size:4.7mm; margin-top:2mm; } .node .ds{ font-family:var(--mono); font-size:3.4mm; color:var(--muted); margin-top:.8mm; }
+  .arrow{ flex:0 0 auto; align-self:center; color:var(--blue); padding:0 2mm; } .arrow .ic{ font-size:6.5mm; }
+  .flow-note{ margin-top:5mm; font-size:4.5mm; color:var(--muted); line-height:1.45; } .flow-note b{ color:var(--ink); }
+
+  /* Dikey detaylı sistem akışı */
+  .sysflow{ display:flex; flex-direction:column; gap:0; }
+  .snode{ background:#fff; border:.5mm solid var(--line); border-left:1.6mm solid var(--blue); border-radius:2.5mm; padding:2.8mm 4.5mm; }
+  .snode .sh{ display:flex; align-items:center; gap:3mm; }
+  .snode .sh .ic{ font-size:6mm; color:var(--blue); flex:0 0 auto; }
+  .snode .sh .nm{ font-family:var(--display); font-weight:700; font-size:4.7mm; color:var(--ink); }
+  .snode .sh .tag{ margin-left:auto; font-family:var(--mono); font-size:3.3mm; color:var(--muted); letter-spacing:.2mm; }
+  .snode .sub{ margin-top:1.3mm; font-size:3.9mm; line-height:1.32; color:var(--muted); } .snode .sub b{ color:var(--ink); font-weight:600; }
+  .sedge{ align-self:center; display:flex; align-items:center; gap:2.5mm; padding:.6mm 0; }
+  .sedge .lbl{ font-family:var(--mono); font-size:3.2mm; color:var(--coral); letter-spacing:.2mm; }
+  .sedge .ar{ color:var(--blue); font-size:4mm; line-height:.7; }
+
+  .method{ display:flex; flex-direction:column; gap:2.4mm; flex:1; min-height:0; }
+  .m{ display:flex; gap:4mm; align-items:center; flex:1; min-height:0; background:#fff; border:.5mm solid var(--line); border-left:1.6mm solid var(--blue); border-radius:2.5mm; padding:2mm 5mm; }
+  .m .k{ font-family:var(--mono); font-weight:700; font-size:4mm; color:var(--blue-d); background:rgba(44,107,240,.10); border:.4mm solid rgba(44,107,240,.28); padding:2.2mm 3mm; border-radius:2mm; white-space:nowrap; width:31mm; text-align:center; flex:0 0 auto; }
+  .m .v{ font-size:4.8mm; line-height:1.3; } .m .v b{ font-weight:600; }
+
+  /* SONUÇ grafik */
+  .chartcap{ font-size:4.4mm; color:var(--muted); margin-bottom:4mm; line-height:1.35; } .chartcap b{ color:var(--ink); }
+  .chartwrap{ flex:1; display:flex; flex-direction:column; justify-content:flex-end; }
+  .ylab{ font-family:var(--mono); font-size:3.6mm; color:var(--muted); margin-bottom:1mm; }
+  .chart{ display:flex; align-items:flex-end; justify-content:space-around; flex:1 1 auto; min-height:66mm; padding:7mm 4mm 0; border-bottom:.6mm solid var(--line); position:relative; }
+  .gridln{ position:absolute; left:0; right:0; border-top:.3mm dashed #e2dcce; font-family:var(--mono); font-size:3.2mm; color:#b9b1a0; z-index:1; }
+  .gridln span{ position:absolute; left:0; top:-2.4mm; background:var(--card); padding-right:2mm; }
+  .grp{ display:flex; align-items:flex-end; gap:4mm; height:100%; position:relative; z-index:2; }
+  .bar{ width:15mm; border-radius:1.5mm 1.5mm 0 0; position:relative; }
+  .bar.med{ background:linear-gradient(var(--blue),var(--blue-d)); } .bar.p95{ background:linear-gradient(#ff8a64,var(--coral)); }
+  .bar .val{ position:absolute; top:-6.5mm; left:50%; transform:translateX(-50%); font-family:var(--mono); font-weight:700; font-size:4mm; white-space:nowrap; }
+  .xlab{ display:flex; justify-content:space-around; margin-top:4mm; } .xlab span{ font-size:4.4mm; font-weight:600; text-align:center; width:33%; line-height:1.2; }
+  .xlab span small{ display:block; font-family:var(--mono); font-weight:500; font-size:3.4mm; color:var(--muted); margin-top:.8mm; }
+  .legend{ display:flex; gap:8mm; justify-content:center; margin-top:5mm; font-size:4.3mm; color:var(--muted); }
+  .legend i{ display:inline-block; width:5mm; height:5mm; border-radius:1.2mm; vertical-align:-.6mm; margin-right:2mm; }
+  .legend b{ color:var(--ink); font-weight:600; }
+
+  /* temas vurgu */
+  .hl{ background:var(--card); border:.5mm solid var(--line); border-left:3mm solid var(--coral); color:var(--ink); border-radius:5mm; padding:7mm; position:relative; overflow:hidden; flex:0 0 auto; }
+  .hl::after{ display:none; }
+  .hl .ptitle h2{ color:var(--ink); } .hl .ptitle .dot{ background:var(--coral); } .hl .ptitle .ic{ color:var(--coral); }
+  .hl p{ font-size:4.9mm; line-height:1.4; color:var(--ink); position:relative; z-index:2; } .hl p b{ color:var(--blue-d); }
+  .hl .row{ display:flex; gap:5mm; margin-top:auto; padding-top:6mm; position:relative; z-index:2; }
+  .hl .chip{ flex:1; background:#fff; border:.5mm solid var(--line); border-radius:3mm; padding:4.5mm 3mm; text-align:center; }
+  .hl .chip .b{ font-family:var(--display); font-weight:800; font-size:8mm; color:var(--coral); line-height:1; } .hl .chip .s{ font-family:var(--mono); font-size:3.5mm; color:var(--muted); margin-top:1.5mm; }
+
+  /* SAHNE bandı (tam genişlik) */
+  .scene-panel{ flex:0 0 auto; }
+  .scene{ width:100%; height:auto; display:block; }
+  .scene-foot{ display:flex; align-items:center; gap:8mm; margin-top:5mm; flex-wrap:wrap; }
+  .scene-cap{ flex:1; min-width:120mm; font-size:4.5mm; color:var(--muted); line-height:1.42; } .scene-cap b{ color:var(--ink); }
+  .sleg{ display:flex; gap:6mm; flex-wrap:wrap; font-size:4.2mm; color:var(--muted); }
+  .sleg span{ display:inline-flex; align-items:center; gap:2.5mm; }
+  .sleg .bk{ width:5mm;height:5mm;border-radius:1.2mm;background:var(--blue); }
+  .sleg .ph{ width:4mm;height:6mm;border-radius:1mm;background:var(--ink); }
+  .sleg .tl{ width:8mm;border-top:1mm dashed var(--teal); } .sleg .ct{ width:8mm;border-top:1.2mm dotted var(--coral); }
+  .sleg .fp{ width:7mm;height:4.5mm;border-radius:1mm;background:rgba(44,107,240,.12);border:.5mm dashed var(--blue); }
+  .sleg .sig{ width:5mm;height:5mm;border-radius:1mm;background:#cbc4b4; }
+
+  /* ALT */
+  .foot{ flex:0 0 auto; display:grid; grid-template-columns:1.05fr 1fr; gap:7mm; align-items:stretch; }
+  .kvkk{ background:var(--ink); color:#fff; border-radius:5mm; padding:6mm 8mm; }
+  .kvkk .t{ font-family:var(--mono); font-weight:700; font-size:4.4mm; color:var(--teal); letter-spacing:.6mm; text-transform:uppercase; margin-bottom:4mm; }
+  .kvkk .items{ display:flex; flex-wrap:wrap; gap:3.5mm; }
+  .kvkk .it{ font-size:4.4mm; background:rgba(255,255,255,.10); border:.4mm solid rgba(255,255,255,.2); padding:2.4mm 4.5mm; border-radius:30mm; }
+  .refs .t{ font-family:var(--mono); font-weight:700; font-size:4mm; color:var(--muted); letter-spacing:.6mm; text-transform:uppercase; margin-bottom:3mm; }
+  .refs ol{ list-style:none; counter-reset:r; }
+  .refs li{ counter-increment:r; font-size:3.7mm; line-height:1.38; color:var(--muted); padding-left:7mm; position:relative; margin-bottom:2mm; }
+  .refs li::before{ content:"["counter(r)"]"; position:absolute; left:0; color:var(--blue-d); font-family:var(--mono); font-weight:700; }
+
+  /* Gerçek donanım şeridi (Raspberry Pi fotoğrafı) */
+  .hwrow{ display:flex; align-items:center; gap:5mm; margin-bottom:4mm; background:#fff;
+          border:.5mm solid var(--line); border-left:2.6mm solid var(--teal); border-radius:3.5mm; padding:3mm 4.5mm; }
+  .hwimg{ width:38mm; height:21mm; object-fit:cover; object-position:center 72%;
+          border-radius:2.5mm; border:.4mm solid var(--line); flex:0 0 auto; box-shadow:0 1.5mm 4mm rgba(14,34,68,.12); }
+  .hwtxt{ font-size:4.4mm; line-height:1.38; color:var(--ink); }
+  .hwtxt b{ font-weight:700; color:var(--blue-d); }
+  .hwtxt .src{ display:block; font-family:var(--mono); font-size:3.2mm; color:var(--muted); margin-top:2mm; }
+
+  /* PARAMETRELER & EŞİKLER şeridi (koddaki saha-ayarlı değerler) */
+  .params{ flex:0 0 auto; background:var(--card); border:.5mm solid var(--line); border-radius:5mm; padding:5mm 7mm; }
+  .params .ph{ font-family:var(--mono); font-weight:700; font-size:4.2mm; letter-spacing:.6mm; color:var(--ink); margin-bottom:3.6mm; display:flex; align-items:baseline; gap:3mm; }
+  .params .ph small{ font-weight:500; font-size:3.5mm; color:var(--muted); letter-spacing:.2mm; }
+  .pset{ display:flex; flex-wrap:wrap; gap:3mm 6mm; align-items:center; }
+  .pgrp{ display:inline-flex; align-items:center; gap:2.6mm; flex-wrap:wrap; }
+  .pgrp .gl{ font-family:var(--mono); font-weight:700; font-size:3.5mm; color:#fff; background:var(--blue-d); padding:1.7mm 3mm; border-radius:2mm; letter-spacing:.4mm; }
+  .pgrp.c .gl{ background:var(--coral); } .pgrp.t .gl{ background:#0c8478; }
+  .pchip{ font-family:var(--mono); font-size:3.6mm; color:var(--muted); background:#fff; border:.4mm solid var(--line); padding:1.7mm 3mm; border-radius:2mm; white-space:nowrap; }
+  .pchip b{ color:var(--blue-d); font-weight:700; }
+
+  /* 05 — fingerprint | trilaterasyon ikiye bölünmüş sahne */
+  .splitscene{ display:grid; grid-template-columns:1fr 1fr; gap:7mm; flex:1; min-height:0; }
+  .scol{ display:flex; flex-direction:column; background:#fff; border:.5mm solid var(--line); border-radius:4mm; padding:4.5mm 5mm 4mm; }
+  .scol.t{ border-left:2.4mm solid var(--teal); }
+  .scol-h{ font-size:4.5mm; color:var(--ink); margin-bottom:3mm; }
+  .scol-h .scol-b{ font-family:var(--mono); font-weight:700; font-size:3.9mm; color:#fff; background:var(--blue-d); padding:1.6mm 3mm; border-radius:2mm; letter-spacing:.3mm; margin-right:2.5mm; }
+  .scol.t .scol-h .scol-b{ background:#0c8478; }
+  .scol .scene, .scol .scene2{ width:100%; height:auto; display:block; flex:0 0 auto; }
+  .scol-cap{ font-size:4mm; line-height:1.38; color:var(--muted); margin-top:3mm; } .scol-cap b{ color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- ÜST BANT -->
+  <header class="head">
+    <div class="brandrow">
+      <div class="logo-badge"><img src="izu_logo.png" alt="İZÜ"></div>
+      <div class="uni">İstanbul Sabahattin Zaim Üniversitesi<br><b>Yazılım Mühendisliği</b></div>
+    </div>
+    <div class="kicker">BLE · İç Mekân Konumlandırma · Temas Takibi</div>
+    <h1>BLE Tabanlı Temas Takibi ve<br><span class="em">İç Mekân Konumlandırma</span></h1>
+    <div class="byline">
+      <span class="who">Mustafa Zafer</span><span class="sep">/</span><span>030721044</span><span class="sep">/</span>
+      <span>Yazılım Mühendisliği</span><span class="adv">Danışman · Dr. Hakan Gençoğlu</span>
+    </div>
+  </header>
+
+  <!-- GİRİŞ -->
+  <section class="intro">
+    <div class="icol">
+      <div class="ilab">PROJE KONUSU</div>
+      <p>Fuar ve etkinlik alanlarında ziyaretçi davranışını — <b>konum</b>, <b>bekleme süresi</b> (dwell) ve kişiler arası <b>temas</b> — yalnızca BLE sinyalleriyle, anonim biçimde ölçen, Beetinq ekosistemine entegre bir mobil sistem.</p>
+    </div>
+    <div class="icol c">
+      <div class="ilab">AMAÇ</div>
+      <p>QR kod veya manuel giriş olmadan; stand ilgisini ve kişiler arası networking yoğunluğunu <b>nesnel, ölçülebilir</b> veriye dönüştürmek.</p>
+    </div>
+    <div class="icol t">
+      <div class="ilab">KAPSAM</div>
+      <ul>
+        <li>BLE tarama + <b>sinyal filtreleme</b></li>
+        <li>Hibrit konumlandırma (<b>fingerprint + trilaterasyon</b>)</li>
+        <li>Cihazlar arası <b>temas takibi</b></li>
+        <li>Gerçek zamanlı <b>yönetim paneli</b> + ısı haritası</li>
+        <li><b>KVKK / GDPR</b> uyumlu, anonim veri</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section class="stats">
+    <div class="stat c"><div class="num">≈2<small> m</small></div><div class="lab"><b>temas algılama</b> mesafesi — yakınlık eşiği</div></div>
+    <div class="stat"><div class="num">3–5<small> m</small></div><div class="lab"><b>konum doğruluğu</b> — hedef karşılandı ✓</div></div>
+    <div class="stat t"><div class="num">%100</div><div class="lab"><b>anonim</b> — kişisel veri saklanmaz (KVKK)</div></div>
+    <div class="stat"><div class="num">98</div><div class="lab"><b>otomatik test</b> · 0 uyarı</div></div>
+  </section>
+
+  <!-- ANA GÖVDE -->
+  <main class="main">
+    <!-- SOL -->
+    <div class="col">
+      <div class="panel" style="flex:0 0 auto;">
+        <div class="ptitle"><span class="dot">01</span><h2>Sistem Nasıl Çalışır?</h2>
+          <svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9"/><path d="M6 12a6 6 0 0 1 6-6"/><circle cx="12" cy="12" r="2"/><path d="M14 14l6 6"/></svg></div>
+        <div class="sysflow">
+          <div class="snode">
+            <div class="sh"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="14" r="2.2"/><path d="M8.5 10.5a5 5 0 0 1 7 0"/><path d="M6 8a8.5 8.5 0 0 1 12 0"/><path d="M12 16v4"/></svg><span class="nm">BLE Beacon</span><span class="tag">Raspberry Pi · 7/24</span></div>
+            <div class="sub">Her standa sabit yayın: <b>UUID + Major + Minor</b>.</div>
+          </div>
+          <div class="sedge"><span class="lbl">RSSI yayını</span><span class="ar">▼</span></div>
+          <div class="snode">
+            <div class="sh"><svg class="ic" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2.5"/><path d="M11 18h2"/></svg><span class="nm">Mobil İstemci</span><span class="tag">Flutter · Riverpod</span></div>
+            <div class="sub"><b>Medyan→Kalman</b> filtre · <b>Fingerprint + WLS</b> konum · dwell · <b>temas kümeleme</b> (yayın + tarama).</div>
+          </div>
+          <div class="sedge"><span class="lbl">HTTPS · JSON · kopya-korumalı</span><span class="ar">▼</span></div>
+          <div class="snode">
+            <div class="sh"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.6"/><rect x="4" y="13" width="16" height="7" rx="1.6"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></svg><span class="nm">Sunucu</span><span class="tag">NestJS · TypeORM · SQLite</span></div>
+            <div class="sub">Saklama · <b>stand-duyarlı birleştirme</b> · istatistik · 14 gün retention.</div>
+          </div>
+          <div class="sedge"><span class="lbl">REST · WebSocket</span><span class="ar">▼</span></div>
+          <div class="snode">
+            <div class="sh"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span class="nm">Yönetim Paneli</span><span class="tag">canlı</span></div>
+            <div class="sub"><b>Isı haritası</b> · dwell · temas raporu · <b>PDF / CSV</b>.</div>
+          </div>
+        </div>
+        <p class="flow-note"><b>Telefonlar birbirini de görür:</b> her cihaz anonim kimlik yayar + çevreyi tarar → cihazda temas kümelenir, tek olay sunucuya gider.</p>
+      </div>
+
+      <div class="panel" style="flex:1 1 auto;">
+        <div class="ptitle"><span class="dot">02</span><h2>Yöntem</h2>
+          <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <div class="method">
+          <div class="m"><span class="k">SİNYAL</span><span class="v"><b>Medyan</b> (5'li) + <b>Kalman</b> filtresi — gürültü ve ani sıçramalar bastırılır.</span></div>
+          <div class="m"><span class="k">KONUM</span><span class="v"><b>Fingerprint</b> bölgeyi (stand) belirler; <b>WLS trilaterasyon</b> (sinyal gücüyle ağırlıklı) + <b>EWMA yumuşatma</b> sürekli (x,y) verir.</span></div>
+          <div class="m"><span class="k">TEMAS</span><span class="v">Anonim <b>SHA-256</b> kimlik yayını + tarama. Kural: <b>&gt; −75 dBm (≈2 m)</b> ve <b>≥ 10 sn</b> → temas başlar.</span></div>
+          <div class="m"><span class="k">VERİ</span><span class="v">Çevrimdışı <b>kopya-korumalı kuyruk</b>: internet kesilse de veri kaybı yaşanmaz, tekrar bağlanınca eşitlenir.</span></div>
+          <div class="m"><span class="k">PLATFORM</span><span class="v">Android <b>arka planda</b> sürekli; iOS <b>ön planda</b> (Apple kısıtı).</span></div>
+          <div class="m"><span class="k">GİZLİLİK</span><span class="v">Yalnız anonim kimlik · <b>2 ayrı kapatma anahtarı</b> · 14 günde otomatik silme.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAĞ -->
+    <div class="col">
+      <div class="panel" style="flex:1 1 auto;">
+        <div class="ptitle"><span class="dot">03</span><h2>Konum Doğruluğu <span style="font-family:var(--mono);font-size:4mm;font-weight:600;color:var(--muted)">· simülasyon</span></h2>
+          <svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div>
+        <p class="chartcap">Bilgisayar benzetimi (5 beacon, 121 nokta). Çubuk = <b>konum hatası, kısa daha iyi</b>. <b>p95</b> = en kötü %5 hariç en büyük hata. Gürültü artsa bile p95 <b>3 m</b> sınırında — saha hedefi 3–5 m karşılanır.</p>
+        <div class="chartwrap">
+          <div class="ylab">↑ Konum hatası (metre)</div>
+          <div class="chart">
+            <div class="gridln" style="bottom:28.3%"><span>1 m</span></div>
+            <div class="gridln" style="bottom:56.7%"><span>2 m</span></div>
+            <div class="gridln" style="bottom:85%"><span>3 m</span></div>
+            <div class="grp"><div class="bar med" style="height:21.2%"><span class="val">0.75</span></div><div class="bar p95" style="height:56.4%"><span class="val">1.99</span></div></div>
+            <div class="grp"><div class="bar med" style="height:16.7%"><span class="val">0.59</span></div><div class="bar p95" style="height:36.5%"><span class="val">1.29</span></div></div>
+            <div class="grp"><div class="bar med" style="height:35.4%"><span class="val">1.25</span></div><div class="bar p95" style="height:85%"><span class="val">3.00</span></div></div>
+          </div>
+          <div class="xlab">
+            <span>Normal<small>az gürültü</small></span>
+            <span>En iyi<small>3 örnek + EWMA</small></span>
+            <span>Zorlu<small>yüksek gürültü</small></span>
+          </div>
+          <div class="legend"><span><i style="background:var(--blue)"></i><b>Medyan</b> · tipik hata</span><span><i style="background:var(--coral)"></i><b>p95</b> · en kötü %5</span></div>
+        </div>
+      </div>
+
+      <div class="hl" style="flex:0 0 auto;">
+        <div class="ptitle"><span class="dot">04</span><h2>Temas — Sinyal Kaybına Dayanıklı</h2>
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg></div>
+        <p>Telefonlarda BLE paket kaybı, teması yanlışlıkla bölüp <b>sayıyı şişiriyordu</b>. Çözüm: kısa kopmaları toleranslı, gerçek ayrılışı net algılayan bir <b>temas yaşam döngüsü</b>.</p>
+        <div class="row">
+          <div class="chip"><div class="b">BAŞLAR</div><div class="s">≈2 m yakın<br>+ 10 sn birlikte</div></div>
+          <div class="chip"><div class="b">DAYANIR</div><div class="s">kısa kopma ~45 sn'ye<br>dek teması bölmez</div></div>
+          <div class="chip"><div class="b">BİTER</div><div class="s">uzaklaşınca<br>veya 60 sn sonra</div></div>
+        </div>
+        <p style="font-size:4.4mm;color:var(--muted);margin-top:5mm;position:relative;z-index:2">
+          Her gerçek duruş ayrı kayıt; gezinti boş (<b>—</b>) kalır → <b>stand bazlı temas</b> (networking) analizi doğru çıkar.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- SAHNE (tam genişlik) -->
+  <section class="panel scene-panel">
+    <div class="ptitle"><span class="dot">05</span><h2>Sahada Nasıl Görünür?</h2>
+      <svg class="ic" viewBox="0 0 24 24"><path d="M3 21V9l9-6 9 6v12"/><path d="M3 21h18M9 21v-6h6v6"/></svg></div>
+    <div class="splitscene">
+    <div class="scol">
+      <div class="scol-h"><span class="scol-b">① FINGERPRINT</span> bölgeyi (stand) seçer</div>
+      <svg class="scene2" viewBox="0 0 1180 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fingerprint ile bölge eşleşmesi">
+        <rect x="18" y="14" width="1144" height="272" rx="14" fill="#fff" stroke="#D7D0BE" stroke-width="2"/>
+        <g stroke="#EDE8DA" stroke-width="1.4"><path d="M304 14V286M590 14V286M876 14V286"/></g>
+        <!-- eşleşen bölge vurgusu (Sergi-A) -->
+        <rect x="304" y="14" width="286" height="272" fill="#2C6BF0" fill-opacity="0.07"/>
+        <rect x="312" y="22" width="270" height="256" rx="7" fill="none" stroke="#2C6BF0" stroke-width="2.2" stroke-dasharray="8 6" opacity="0.8"/>
+        <!-- kayıtlı RSSI imzaları (her bölgenin parmak izi) -->
+        <g fill="#cbc4b4">
+          <rect x="120" y="118" width="16" height="32"/><rect x="142" y="104" width="16" height="46"/><rect x="164" y="126" width="16" height="24"/><rect x="186" y="112" width="16" height="38"/>
+          <rect x="692" y="124" width="16" height="26"/><rect x="714" y="108" width="16" height="42"/><rect x="736" y="118" width="16" height="32"/><rect x="758" y="130" width="16" height="20"/>
+          <rect x="978" y="116" width="16" height="34"/><rect x="1000" y="128" width="16" height="22"/><rect x="1022" y="106" width="16" height="44"/><rect x="1044" y="120" width="16" height="30"/>
+        </g>
+        <g fill="#2C6BF0"> <!-- eşleşen imza (mavi) -->
+          <rect x="406" y="110" width="16" height="40"/><rect x="428" y="96" width="16" height="54"/><rect x="450" y="120" width="16" height="30"/><rect x="472" y="104" width="16" height="46"/>
+        </g>
+        <!-- stand etiketleri -->
+        <g font-family="'IBM Plex Mono'" font-weight="700" font-size="17" fill="#16315f" text-anchor="middle">
+          <text x="161" y="56">Giriş</text><text x="733" y="56">Sergi-B</text><text x="1019" y="56">Cafe</text>
+        </g>
+        <rect x="372" y="40" width="150" height="28" rx="14" fill="#2C6BF0"/>
+        <text x="447" y="60" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="16" fill="#fff">✓ Sergi-A</text>
+        <!-- telefon eşleşen bölgede + anlık okuma -->
+        <rect x="423" y="178" width="48" height="74" rx="8" fill="#0E2244" stroke="#1b3a66" stroke-width="1"/>
+        <rect x="428" y="185" width="38" height="58" rx="3.5" fill="#eef4fb"/>
+        <rect x="440" y="181" width="14" height="3" rx="1.5" fill="#0E2244"/>
+        <text x="447" y="272" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="14" fill="#0E2244">anlık RSSI</text>
+        <!-- beacon'lar köşelerde — sinyal yayan (merkeze doğru) -->
+        <g stroke="#2C6BF0" fill="none" stroke-linecap="round">
+          <g transform="translate(61,59)"><path d="M16 -11 A21 21 0 0 1 16 11" stroke-width="2.4" opacity="0.9"/><path d="M23 -16 A30 30 0 0 1 23 16" stroke-width="1.8" opacity="0.55"/><path d="M30 -21 A39 39 0 0 1 30 21" stroke-width="1.5" opacity="0.3"/></g>
+          <g transform="translate(1119,59) scale(-1,1)"><path d="M16 -11 A21 21 0 0 1 16 11" stroke-width="2.4" opacity="0.9"/><path d="M23 -16 A30 30 0 0 1 23 16" stroke-width="1.8" opacity="0.55"/><path d="M30 -21 A39 39 0 0 1 30 21" stroke-width="1.5" opacity="0.3"/></g>
+          <g transform="translate(61,241)"><path d="M16 -11 A21 21 0 0 1 16 11" stroke-width="2.4" opacity="0.9"/><path d="M23 -16 A30 30 0 0 1 23 16" stroke-width="1.8" opacity="0.55"/><path d="M30 -21 A39 39 0 0 1 30 21" stroke-width="1.5" opacity="0.3"/></g>
+          <g transform="translate(1119,241) scale(-1,1)"><path d="M16 -11 A21 21 0 0 1 16 11" stroke-width="2.4" opacity="0.9"/><path d="M23 -16 A30 30 0 0 1 23 16" stroke-width="1.8" opacity="0.55"/><path d="M30 -21 A39 39 0 0 1 30 21" stroke-width="1.5" opacity="0.3"/></g>
+        </g>
+        <g fill="#1B4FC4" stroke="#2C6BF0" stroke-width="1.4">
+          <rect x="50" y="48" width="22" height="22" rx="5"/><rect x="1108" y="48" width="22" height="22" rx="5"/>
+          <rect x="50" y="230" width="22" height="22" rx="5"/><rect x="1108" y="230" width="22" height="22" rx="5"/>
+        </g>
+        <g fill="#7fa6ff"><circle cx="61" cy="59" r="4"/><circle cx="1119" cy="59" r="4"/><circle cx="61" cy="241" r="4"/><circle cx="1119" cy="241" r="4"/></g>
+      </svg>
+      <p class="scol-cap">Telefonun anlık <b>RSSI parmak izi</b>, her bölgenin kayıtlı imzasıyla karşılaştırılır; <b>en yakın komşu (KNN · 1-NN)</b> hangi <b>bölgede (stand)</b> olunduğunu verir.</p>
+      <div class="sleg"><span><i class="bk"></i>Beacon</span><span><i class="ph"></i>Telefon</span><span><i class="sig"></i>Kayıtlı imza</span><span><i class="fp"></i>Eşleşen bölge · KNN</span></div>
+    </div>
+    <div class="scol t">
+      <div class="scol-h"><span class="scol-b">② TRİLATERASYON</span> fallback · kesin (x,y) verir</div>
+      <svg class="scene" viewBox="0 0 1180 300" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Oda içinde 4 Raspberry Pi beacon ve 2 telefon ile konumlandırma ve temas">
+      <defs>
+        <marker id="ah" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" fill="#0FB5A6"/></marker>
+        <!-- Beacon: temiz sinyal cihazı (merkez 0,0) -->
+        <g id="rpi">
+          <g stroke="#2C6BF0" fill="none" stroke-linecap="round">
+            <path d="M16 -11 A21 21 0 0 1 16 11" stroke-width="2.4" opacity="0.9"/>
+            <path d="M23 -16 A30 30 0 0 1 23 16" stroke-width="1.8" opacity="0.55"/>
+            <path d="M30 -21 A39 39 0 0 1 30 21" stroke-width="1.5" opacity="0.3"/>
+          </g>
+          <rect x="-14" y="-14" width="28" height="28" rx="7" fill="#1B4FC4" stroke="#2C6BF0" stroke-width="1.6"/>
+          <circle cx="0" cy="0" r="6" fill="#7fa6ff"/>
+          <circle cx="0" cy="0" r="2.4" fill="#fff"/>
+        </g>
+        <!-- Telefon (merkez 0,0) -->
+        <g id="phone">
+          <rect x="-23" y="-37" width="46" height="74" rx="7.5" fill="#0E2244" stroke="#1b3a66" stroke-width="1"/>
+          <rect x="-19" y="-31" width="38" height="62" rx="3.5" fill="#eef4fb"/>
+          <rect x="-7" y="-34" width="14" height="3.2" rx="1.6" fill="#0E2244"/>
+          <g stroke="#b9cde4" stroke-width="1" opacity="0.7"><path d="M-19 -8 H19 M-19 10 H19 M-4 -31 V31 M9 -31 V31"/></g>
+          <rect x="-8" y="33.5" width="16" height="2" rx="1" fill="#1b3a66"/>
+        </g>
+      </defs>
+
+      <rect x="18" y="14" width="1144" height="272" rx="14" fill="#fff" stroke="#D7D0BE" stroke-width="2"/>
+      <g stroke="#EDE8DA" stroke-width="1.4"><path d="M260 14V286M500 14V286M740 14V286M920 14V286"/><path d="M18 95H1162M18 165H1162M18 235H1162"/></g>
+
+      <!-- trilaterasyon (B1,B2,B3 -> Telefon A) -->
+      <g stroke="#0FB5A6" stroke-width="2.2" stroke-dasharray="7 5" fill="none" opacity="0.85" marker-end="url(#ah)">
+        <path d="M148 84 L450 152"/><path d="M1034 84 L492 150"/><path d="M148 220 L458 172"/>
+      </g>
+
+      <!-- Raspberry Pi beacon'lar (sağdakiler aynalı) -->
+      <g font-family="'IBM Plex Mono'" font-weight="700" font-size="15" fill="#16315f">
+        <use href="#rpi" transform="translate(120,74)"/><text x="120" y="48" text-anchor="middle">B1</text>
+        <use href="#rpi" transform="translate(1060,74) scale(-1,1)"/><text x="1060" y="48" text-anchor="middle">B2</text>
+        <use href="#rpi" transform="translate(120,226)"/><text x="120" y="262" text-anchor="middle">B3</text>
+        <use href="#rpi" transform="translate(1060,226) scale(-1,1)"/><text x="1060" y="262" text-anchor="middle">B4</text>
+      </g>
+
+      <!-- Telefonlar -->
+      <use href="#phone" transform="translate(471,160)"/>
+      <circle cx="471" cy="160" r="5.5" fill="#FF6A3D" stroke="#fff" stroke-width="1.8"/>
+      <text x="471" y="116" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="15" fill="#0E2244">Telefon A</text>
+      <use href="#phone" transform="translate(739,174)"/>
+      <text x="739" y="130" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="15" fill="#0E2244">Telefon B</text>
+
+      <!-- temas A<->B -->
+      <path d="M494 152 Q616 104 716 166" stroke="#FF6A3D" stroke-width="3" stroke-dasharray="2 7" stroke-linecap="round" fill="none"/>
+      <rect x="544" y="96" width="132" height="30" rx="15" fill="#FF6A3D"/><text x="610" y="116" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="15" fill="#fff">≈ 2 m · TEMAS</text>
+    </svg>
+      <p class="scol-cap"><b>Dört sabit beacon</b>; telefon en güçlü <b>3 beacon</b>'dan gelen sinyalle <b>trilaterasyon</b> ile kesin (x,y)'ye konumlanır (turuncu nokta). İki telefon <b>≈2 m</b> yakınsa <b>temas</b> kaydedilir.</p>
+      <div class="sleg"><span><i class="bk"></i>Beacon</span><span><i class="ph"></i>Telefon</span><span><i class="tl"></i>Trilaterasyon</span><span><i class="ct"></i>Temas</span></div>
+    </div>
+    </div>
+  </section>
+
+  <!-- PARAMETRELER & EŞİKLER (koddaki saha-ayarlı değerler) -->
+  <section class="params">
+    <div class="ph">PARAMETRELER &amp; EŞİKLER <small>· koddaki saha-ayarlı eşik değerleri</small></div>
+    <div class="pset">
+      <div class="pgrp c">
+        <span class="gl">TEMAS</span>
+        <span class="pchip">başla <b>&gt;−75 dBm · 10 sn</b></span>
+        <span class="pchip">kopma <b>20 sn</b> → sürdür <b>≤45 sn</b></span>
+        <span class="pchip">bitiş <b>−80 dBm · 60 sn</b></span>
+      </div>
+      <div class="pgrp">
+        <span class="gl">KONUM</span>
+        <span class="pchip">sinyal <b>medyan 5 + Kalman</b></span>
+        <span class="pchip">stand dwell <b>45 sn</b></span>
+        <span class="pchip">ayrılış payı <b>15 sn</b></span>
+      </div>
+      <div class="pgrp t">
+        <span class="gl">VERİ</span>
+        <span class="pchip">saklama <b>14 gün</b></span>
+        <span class="pchip">birleştirme <b>stand-duyarlı</b></span>
+        <span class="pchip">kuyruk <b>kopya-korumalı</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- BEKLENEN ÇIKTILAR -->
+  <section class="outs">
+    <div class="lead">Beklenen Çıktılar<span>YÖNETİM PANELİ</span></div>
+    <div class="out c"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg></div><div class="ot">Yoğunluk haritası<small>gerçek zamanlı ısı</small></div></div>
+    <div class="out t"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div><div class="ot">Bekleme süresi<small>stand bazlı dwell</small></div></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19a5 5 0 0 1 10 0M13 19a5 5 0 0 1 8-3.5"/></svg></div><div class="ot">Temas raporu<small>kişi · çift · stand</small></div></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M9.5 13h5M9.5 16.5h5"/></svg></div><div class="ot">PDF / CSV rapor<small>etkinlik sonrası</small></div></div>
+  </section>
+
+  <!-- ALT -->
+  <footer class="foot">
+    <div class="kvkk">
+      <div class="t">Gizlilik & KVKK / GDPR</div>
+      <div class="items">
+        <span class="it">Anonim SHA-256</span><span class="it">Kişisel veri yok</span>
+        <span class="it">İki ayrı opt-out</span><span class="it">HTTPS</span><span class="it">14 günde otomatik silme</span>
+      </div>
+    </div>
+    <div class="refs">
+      <div class="t">Kaynaklar</div>
+      <ol>
+        <li>J. Röbesaat ve diğ., "An Improved BLE Indoor Localization with Kalman-Based Fusion," <i>Sensors</i>, 17(5):951, 2017.</li>
+        <li>V. Cantón Paterna ve diğ., "A BLE Indoor Positioning System with Weighted Trilateration and Kalman Filtering," <i>Sensors</i>, 17(12):2927, 2017.</li>
+        <li>G. Li ve diğ., "Indoor Positioning Based on Improved RSSI Distance Model and Kalman Filter," <i>IEEE Access</i>, 6:28489-28499, 2018.</li>
+      </ol>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Beetinq Sense — A1 Poster (Blueprint)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Chakra+Petch:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#081826; --panel:#0c2236; --panel2:#0f2942;
+    --grid:rgba(86,180,240,.07); --gridb:rgba(86,180,240,.13);
+    --cyan:#38bdf8; --cyanb:#67e8f9; --line:rgba(86,180,240,.30); --line2:rgba(86,180,240,.18);
+    --ink:#e3f1fd; --ink2:#a9c6e0; --muted:#6f8fab;
+    --amber:#fbbf24; --green:#34d399; --rose:#fb7185;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sans:'IBM Plex Sans',sans-serif;
+    --disp:'Chakra Petch','IBM Plex Mono',monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  @page{ size:594mm 841mm; margin:0; }
+  html,body{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  body{ font-family:var(--sans); color:var(--ink); background:var(--bg); }
+  .ic{ width:1em;height:1em;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-.12em; }
+
+  .poster{
+    width:594mm; height:841mm; position:relative; overflow:hidden;
+    background:
+      linear-gradient(var(--grid) .25mm, transparent .25mm) 0 0/6mm 6mm,
+      linear-gradient(90deg, var(--grid) .25mm, transparent .25mm) 0 0/6mm 6mm,
+      linear-gradient(var(--gridb) .3mm, transparent .3mm) 0 0/30mm 30mm,
+      linear-gradient(90deg, var(--gridb) .3mm, transparent .3mm) 0 0/30mm 30mm,
+      radial-gradient(circle at 88% 4%, rgba(56,189,248,.10), transparent 38%),
+      var(--bg);
+    display:flex; flex-direction:column; gap:6mm; padding:12mm;
+  }
+
+  /* köşe işaretleri (technical drawing brackets) */
+  .panel{ position:relative; background:var(--panel); border:.4mm solid var(--line2); }
+  .panel::before,.panel::after{ content:""; position:absolute; width:4mm; height:4mm; border:.5mm solid var(--cyan); }
+  .panel::before{ left:-.4mm; top:-.4mm; border-right:0; border-bottom:0; }
+  .panel::after{ right:-.4mm; bottom:-.4mm; border-left:0; border-top:0; }
+
+  /* başlık etiketi: // 01 — SİSTEM */
+  .ptag{ display:flex; align-items:center; gap:3mm; font-family:var(--mono); font-weight:700;
+         font-size:5mm; letter-spacing:.6mm; color:var(--cyan); text-transform:uppercase;
+         padding-bottom:3.5mm; margin-bottom:5mm; border-bottom:.4mm dashed var(--line2); }
+  .ptag .no{ background:var(--cyan); color:var(--bg); padding:1mm 2.6mm; font-size:4.2mm; letter-spacing:.4mm; }
+  .ptag .ic{ margin-left:auto; color:var(--cyan); font-size:6mm; opacity:.85; }
+
+  /* ÜST BANT */
+  .head{ padding:11mm 13mm; flex:0 0 auto; }
+  .brand{ display:flex; align-items:center; gap:8mm; }
+  .logo{ width:26mm;height:26mm;border:.5mm solid var(--line);background:#fff;border-radius:50%;
+         display:flex;align-items:center;justify-content:center;flex:0 0 auto; }
+  .logo img{ width:20mm;height:20mm;object-fit:contain; }
+  .uni{ font-family:var(--mono);font-size:4mm;line-height:1.55;letter-spacing:.4mm;text-transform:uppercase;color:var(--ink2); }
+  .uni b{ color:var(--cyanb); font-weight:600; }
+  .kick{ font-family:var(--mono);font-size:4mm;letter-spacing:2mm;color:var(--amber);text-transform:uppercase;margin:8mm 0 3mm; }
+  h1{ font-family:var(--disp);font-weight:700;font-size:21mm;line-height:1.04;color:var(--ink);letter-spacing:.2mm; }
+  h1 .em{ color:var(--cyan); }
+  .byline{ margin-top:7mm;display:flex;flex-wrap:wrap;gap:3mm 6mm;align-items:center;font-family:var(--mono);font-size:4.4mm;color:var(--ink2); }
+  .byline .who{ color:var(--ink);font-weight:600; } .byline .sep{ color:var(--muted); }
+  .byline .adv{ color:var(--bg);background:var(--cyan);padding:1.8mm 4.5mm;font-weight:600; }
+  .scan{ position:absolute; right:13mm; top:13mm; font-family:var(--mono); font-size:3.6mm; color:var(--muted); text-align:right; line-height:1.6; }
+
+  /* GİRİŞ (3 sütun) */
+  .intro{ flex:0 0 auto; display:grid; grid-template-columns:1.3fr 1fr 1.05fr; gap:6mm; }
+  .icol{ padding:6mm 6.5mm; }
+  .ilab{ font-family:var(--mono);font-weight:700;font-size:4mm;letter-spacing:.9mm;color:var(--cyan);margin-bottom:4mm; }
+  .icol.c .ilab{ color:var(--amber); } .icol.t .ilab{ color:var(--green); }
+  .icol p{ font-size:4.9mm;line-height:1.42;color:var(--ink2); } .icol p b{ color:var(--ink);font-weight:600; }
+  .icol ul{ list-style:none; } .icol li{ font-size:4.6mm;line-height:1.4;padding-left:6mm;position:relative;margin-bottom:2.6mm;color:var(--ink2); }
+  .icol li::before{ content:">";position:absolute;left:0;color:var(--green);font-family:var(--mono);font-weight:700; }
+  .icol li b{ color:var(--ink);font-weight:600; }
+
+  /* STAT */
+  .stats{ flex:0 0 auto; display:grid; grid-template-columns:repeat(4,1fr); gap:6mm; }
+  .stat{ padding:6mm 6.5mm; }
+  .stat .num{ font-family:var(--disp);font-weight:700;font-size:20mm;line-height:.9;color:var(--cyanb);letter-spacing:.2mm; }
+  .stat.a .num{ color:var(--amber); } .stat.g .num{ color:var(--green); }
+  .stat .num small{ font-size:8mm; }
+  .stat .lab{ margin-top:3mm;font-size:4.3mm;line-height:1.25;color:var(--ink2); } .stat .lab b{ color:var(--ink);font-weight:600; }
+
+  /* ANA GÖVDE */
+  .main{ flex:1 1 auto; display:grid; grid-template-columns:1.12fr 1fr; gap:6mm; min-height:0; }
+  .col{ display:flex; flex-direction:column; gap:6mm; min-height:0; }
+  .pad{ padding:6mm 6.5mm; }
+
+  /* SİSTEM AKIŞI (detaylı flowchart) */
+  .flow{ display:flex; flex-direction:column; gap:0; }
+  .fnode{ border:.4mm solid var(--line);background:var(--panel2);padding:4.5mm 5mm;position:relative; }
+  .fnode .fh{ display:flex;align-items:center;gap:3mm;font-family:var(--mono);font-weight:700;font-size:5mm;color:var(--cyanb); }
+  .fnode .fh .ic{ font-size:6mm;color:var(--cyan); }
+  .fnode .fh .tag{ margin-left:auto;font-size:3.4mm;color:var(--muted);font-weight:500;letter-spacing:.4mm; }
+  .fnode .fs{ margin-top:2.5mm;font-size:4.1mm;line-height:1.4;color:var(--ink2); } .fnode .fs b{ color:var(--ink);font-weight:600; }
+  .fedge{ align-self:center; display:flex; flex-direction:column; align-items:center; padding:1.5mm 0; }
+  .fedge .lbl{ font-family:var(--mono);font-size:3.4mm;color:var(--amber);letter-spacing:.3mm; }
+  .fedge .ar{ color:var(--cyan);font-size:5mm;line-height:.7; }
+  .fnote{ margin-top:5mm;font-size:4.3mm;line-height:1.42;color:var(--ink2);border-left:.6mm solid var(--cyan);padding-left:4mm; }
+  .fnote b{ color:var(--cyanb); }
+
+  /* YÖNTEM */
+  .method{ display:flex; flex-direction:column; gap:3mm; }
+  .m{ display:flex;gap:4.5mm;align-items:flex-start;border:.4mm solid var(--line2);background:var(--panel2);padding:3.5mm 5mm; }
+  .m .k{ font-family:var(--mono);font-weight:700;font-size:3.9mm;color:var(--cyan);width:26mm;flex:0 0 auto;letter-spacing:.4mm;padding-top:.4mm; }
+  .m .v{ font-size:4.6mm;line-height:1.34;color:var(--ink2); } .m .v b{ color:var(--ink);font-weight:600; }
+
+  /* KONUM DOĞRULUĞU grafik */
+  .cap{ font-size:4.2mm;line-height:1.4;color:var(--ink2);margin-bottom:4mm; } .cap b{ color:var(--ink); }
+  .chartwrap{ flex:1;display:flex;flex-direction:column;justify-content:flex-end; }
+  .ylab{ font-family:var(--mono);font-size:3.4mm;color:var(--muted);margin-bottom:1.5mm; }
+  .chart{ display:flex;align-items:flex-end;justify-content:space-around;flex:1;min-height:84mm;padding:8mm 3mm 0;border-bottom:.5mm solid var(--line);position:relative; }
+  .gl{ position:absolute;left:0;right:0;border-top:.3mm dashed var(--line2);font-family:var(--mono);font-size:3.2mm;color:var(--muted); }
+  .gl span{ position:absolute;left:0;top:-2.2mm;background:var(--panel);padding-right:2mm; }
+  .grp{ display:flex;align-items:flex-end;gap:3.5mm;height:100%;position:relative;z-index:2; }
+  .bar{ width:14mm;position:relative; }
+  .bar.med{ background:linear-gradient(var(--cyanb),var(--cyan)); }
+  .bar.p95{ background:linear-gradient(#fcd34d,var(--amber)); }
+  .bar .val{ position:absolute;top:-6.5mm;left:50%;transform:translateX(-50%);font-family:var(--mono);font-weight:700;font-size:3.8mm;color:var(--ink);white-space:nowrap; }
+  .xlab{ display:flex;justify-content:space-around;margin-top:4mm; }
+  .xlab span{ font-size:4.3mm;font-weight:600;text-align:center;width:33%;color:var(--ink);line-height:1.2; }
+  .xlab small{ display:block;font-family:var(--mono);font-weight:400;font-size:3.3mm;color:var(--muted);margin-top:.8mm; }
+  .leg{ display:flex;gap:7mm;justify-content:center;margin-top:4mm;font-size:4.1mm;color:var(--ink2); }
+  .leg i{ display:inline-block;width:5mm;height:3mm;vertical-align:.2mm;margin-right:2mm; } .leg b{ color:var(--ink);font-weight:600; }
+
+  /* TEMAS yaşam döngüsü flowchart */
+  .lc{ display:flex; flex-direction:column; gap:0; }
+  .lcnode{ border:.4mm solid var(--line);padding:3.5mm 4.5mm;background:var(--panel2);font-size:4.3mm;line-height:1.32; }
+  .lcnode b{ color:var(--ink);font-weight:600; }
+  .lcnode.start{ border-color:var(--cyan);border-left:1.6mm solid var(--cyan); }
+  .lcnode.dec{ border-color:var(--amber);border-left:1.6mm solid var(--amber);background:rgba(251,191,36,.06); }
+  .lcnode.go{ border-color:var(--green);border-left:1.6mm solid var(--green);background:rgba(52,211,153,.06); }
+  .lcnode.end{ border-color:var(--rose);border-left:1.6mm solid var(--rose);background:rgba(251,113,133,.06); }
+  .lcnode .t{ font-family:var(--mono);font-weight:700;font-size:4mm;color:var(--cyanb);letter-spacing:.3mm; }
+  .lcnode.dec .t{ color:var(--amber); } .lcnode.go .t{ color:var(--green); } .lcnode.end .t{ color:var(--rose); }
+  .lcnode .d{ margin-top:1.5mm;color:var(--ink2);font-size:4.1mm; } .lcnode .d b{ color:var(--ink); }
+  .lcedge{ align-self:center;color:var(--cyan);font-size:5mm;padding:1.2mm 0;line-height:.7; }
+  .lcchips{ display:flex;gap:3mm;margin-top:2mm; }
+  .lcchip{ flex:1;border:.4mm solid var(--line2);padding:2.6mm 2mm;text-align:center; }
+  .lcchip .b{ font-family:var(--mono);font-weight:700;font-size:4.2mm;color:var(--amber); }
+  .lcchip .s{ font-family:var(--mono);font-size:3mm;color:var(--muted);margin-top:1mm; }
+
+  /* SAHNE */
+  .scene{ width:100%;height:auto;display:block; }
+  .sfoot{ display:flex;align-items:center;gap:7mm;margin-top:4mm;flex-wrap:wrap; }
+  .scap{ flex:1;min-width:120mm;font-size:4.3mm;line-height:1.4;color:var(--ink2); } .scap b{ color:var(--ink); }
+  .sleg{ display:flex;gap:5mm;flex-wrap:wrap;font-family:var(--mono);font-size:3.8mm;color:var(--ink2); }
+  .sleg span{ display:inline-flex;align-items:center;gap:2.2mm; }
+  .sleg .bk{ width:0;height:0;border-left:2.6mm solid transparent;border-right:2.6mm solid transparent;border-bottom:4.5mm solid var(--cyan); }
+  .sleg .ph{ width:3.5mm;height:5.5mm;background:var(--ink); }
+  .sleg .tl{ width:7mm;border-top:.8mm dashed var(--green); } .sleg .ct{ width:7mm;border-top:1mm dashed var(--amber); }
+
+  /* ÇIKTILAR */
+  .outs{ flex:0 0 auto;padding:5.5mm 6.5mm;display:grid;grid-template-columns:auto repeat(4,1fr);gap:6mm;align-items:center; }
+  .outs .lead{ font-family:var(--disp);font-weight:700;font-size:5.6mm;line-height:1.1;color:var(--ink);max-width:38mm; }
+  .outs .lead span{ display:block;font-family:var(--mono);font-size:3.4mm;font-weight:500;color:var(--amber);margin-top:1.2mm;letter-spacing:.4mm; }
+  .out{ display:flex;align-items:center;gap:3.5mm; }
+  .out .oi{ width:12mm;height:12mm;flex:0 0 auto;display:flex;align-items:center;justify-content:center;border:.4mm solid var(--line);color:var(--cyan); }
+  .out .oi .ic{ font-size:6.5mm; }
+  .out .ot{ font-weight:600;font-size:4.6mm;line-height:1.2;color:var(--ink); }
+  .out .ot small{ display:block;font-family:var(--mono);font-weight:400;font-size:3.3mm;color:var(--muted);margin-top:.8mm; }
+
+  /* FOOTER */
+  .foot{ flex:0 0 auto;display:grid;grid-template-columns:1.05fr 1fr;gap:6mm; }
+  .kvkk{ padding:5.5mm 6.5mm; }
+  .kvkk .t{ font-family:var(--mono);font-weight:700;font-size:4.2mm;color:var(--green);letter-spacing:.6mm;text-transform:uppercase;margin-bottom:4mm; }
+  .kvkk .items{ display:flex;flex-wrap:wrap;gap:3mm; }
+  .kvkk .it{ font-family:var(--mono);font-size:4mm;border:.4mm solid var(--line2);padding:2.2mm 4mm;color:var(--ink2); }
+  .refs{ padding:5.5mm 6.5mm; }
+  .refs .t{ font-family:var(--mono);font-weight:700;font-size:4mm;color:var(--muted);letter-spacing:.6mm;text-transform:uppercase;margin-bottom:3mm; }
+  .refs ol{ list-style:none;counter-reset:r; }
+  .refs li{ counter-increment:r;font-size:3.6mm;line-height:1.4;color:var(--muted);padding-left:7mm;position:relative;margin-bottom:2mm; }
+  .refs li::before{ content:"["counter(r)"]";position:absolute;left:0;color:var(--cyan);font-family:var(--mono);font-weight:700; }
+</style>
+</head>
+<body>
+<div class="poster">
+
+  <!-- ÜST BANT -->
+  <header class="panel head">
+    <div class="scan">// BLE-IPS-CT<br>rev. 2026.06<br>A1 / 594×841</div>
+    <div class="brand">
+      <div class="logo"><img src="izu_logo.png" alt="İZÜ"></div>
+      <div class="uni">İstanbul Sabahattin Zaim Üniversitesi<br><b>Yazılım Mühendisliği</b></div>
+    </div>
+    <div class="kick">BLE · İÇ MEKÂN KONUMLANDIRMA · TEMAS TAKİBİ</div>
+    <h1>BLE Tabanlı Temas Takibi ve<br><span class="em">İç Mekân Konumlandırma</span></h1>
+    <div class="byline">
+      <span class="who">Mustafa Zafer</span><span class="sep">·</span><span>030721044</span><span class="sep">·</span>
+      <span>Yazılım Mühendisliği</span><span class="adv">DANIŞMAN · Dr. Hakan Gençoğlu</span>
+    </div>
+  </header>
+
+  <!-- GİRİŞ -->
+  <section class="intro">
+    <div class="panel icol">
+      <div class="ilab">// PROJE KONUSU</div>
+      <p>Fuar ve etkinlik alanlarında ziyaretçi davranışını — <b>konum</b>, <b>bekleme süresi</b> (dwell) ve kişiler arası <b>temas</b> — yalnızca BLE sinyalleriyle, anonim biçimde ölçen, Beetinq ekosistemine entegre bir mobil sistem.</p>
+    </div>
+    <div class="panel icol c">
+      <div class="ilab">// AMAÇ</div>
+      <p>QR kod veya manuel giriş olmadan; stant ilgisini ve kişiler arası networking yoğunluğunu <b>nesnel, ölçülebilir</b> veriye dönüştürmek.</p>
+    </div>
+    <div class="panel icol t">
+      <div class="ilab">// KAPSAM</div>
+      <ul>
+        <li>BLE tarama + <b>sinyal filtreleme</b></li>
+        <li>Hibrit konumlandırma (<b>fingerprint + trilaterasyon</b>)</li>
+        <li>Cihazlar arası <b>temas takibi</b></li>
+        <li>Gerçek zamanlı <b>yönetim paneli</b></li>
+        <li><b>KVKK / GDPR</b> uyumlu, anonim veri</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- STAT -->
+  <section class="stats">
+    <div class="panel stat a"><div class="num">≈2<small>m</small></div><div class="lab"><b>temas algılama</b> mesafesi — yakınlık eşiği</div></div>
+    <div class="panel stat"><div class="num">3–5<small>m</small></div><div class="lab"><b>konum doğruluğu</b> — hedef karşılandı</div></div>
+    <div class="panel stat g"><div class="num">%100</div><div class="lab"><b>anonim</b> — kişisel veri saklanmaz (KVKK)</div></div>
+    <div class="panel stat"><div class="num">98</div><div class="lab"><b>otomatik test</b> geçiyor · 0 uyarı</div></div>
+  </section>
+
+  <!-- ANA GÖVDE -->
+  <main class="main">
+    <!-- SOL -->
+    <div class="col">
+      <!-- 01 SİSTEM AKIŞI (detaylı) -->
+      <div class="panel pad" style="flex:0 0 auto;">
+        <div class="ptag"><span class="no">01</span> Sistem Akışı
+          <svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9"/><path d="M6 12a6 6 0 0 1 6-6"/><circle cx="12" cy="12" r="2"/><path d="M14 14l6 6"/></svg></div>
+        <div class="flow">
+          <div class="fnode">
+            <div class="fh"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="14" r="2.2"/><path d="M8.5 10.5a5 5 0 0 1 7 0"/><path d="M6 8a8.5 8.5 0 0 1 12 0"/><path d="M12 16v4"/></svg>BLE BEACON<span class="tag">Raspberry Pi · 7/24</span></div>
+            <div class="fs">Her standa sabit yayın: <b>UUID + Major + Minor</b>.</div>
+          </div>
+          <div class="fedge"><span class="lbl">RSSI yayını</span><span class="ar">▼</span></div>
+          <div class="fnode">
+            <div class="fh"><svg class="ic" viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>MOBİL İSTEMCİ<span class="tag">Flutter · Riverpod</span></div>
+            <div class="fs"><b>Medyan→Kalman</b> filtre · <b>Fingerprint + WLS</b> konum · dwell · <b>temas kümeleme</b> (yayın+tarama).</div>
+          </div>
+          <div class="fedge"><span class="lbl">HTTPS · JSON · kopya-korumalı</span><span class="ar">▼</span></div>
+          <div class="fnode">
+            <div class="fh"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="7" rx="1.4"/><rect x="4" y="13" width="16" height="7" rx="1.4"/><path d="M7.5 7.5h.01M7.5 16.5h.01"/></svg>SUNUCU<span class="tag">NestJS · TypeORM · SQLite</span></div>
+            <div class="fs">Saklama · <b>stant-duyarlı birleştirme</b> · istatistik · 14 gün <b>retention</b>.</div>
+          </div>
+          <div class="fedge"><span class="lbl">REST · WebSocket</span><span class="ar">▼</span></div>
+          <div class="fnode">
+            <div class="fh"><svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>YÖNETİM PANELİ<span class="tag">canlı</span></div>
+            <div class="fs"><b>Isı haritası</b> · dwell · temas raporu · <b>PDF/CSV</b>.</div>
+          </div>
+        </div>
+        <p class="fnote"><b>Telefonlar birbirini de görür:</b> her cihaz anonim kimlik yayar ve çevreyi tarar → temas cihazda kümelenir, tek olay sunucuya gider.</p>
+      </div>
+
+      <!-- 02 YÖNTEM -->
+      <div class="panel pad" style="flex:1 1 auto;">
+        <div class="ptag"><span class="no">02</span> Yöntem
+          <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
+        <div class="method">
+          <div class="m"><span class="k">SİNYAL</span><span class="v"><b>Medyan</b> (5'li) + <b>Kalman</b> filtresi — gürültü ve ani sıçramalar bastırılır.</span></div>
+          <div class="m"><span class="k">KONUM</span><span class="v"><b>Fingerprint (KNN)</b> bölgeyi belirler; <b>WLS trilaterasyon</b> (sinyal gücüyle ağırlıklı) + <b>EWMA</b> yumuşatma sürekli (x,y) verir.</span></div>
+          <div class="m"><span class="k">TEMAS</span><span class="v">Anonim <b>SHA-256</b> yayını + tarama; yakınlık ve süre eşiğiyle temas kümelenir.</span></div>
+          <div class="m"><span class="k">VERİ</span><span class="v">Çevrimdışı <b>kopya-korumalı kuyruk</b>: internet kesilse de veri kaybı olmaz.</span></div>
+          <div class="m"><span class="k">PLATFORM</span><span class="v">Android <b>arka planda</b> sürekli; iOS <b>ön planda</b> (Apple kısıtı).</span></div>
+          <div class="m"><span class="k">GİZLİLİK</span><span class="v">Yalnız anonim kimlik · <b>2 ayrı kapatma anahtarı</b> · 14 günde otomatik silme.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAĞ -->
+    <div class="col">
+      <!-- 03 KONUM DOĞRULUĞU -->
+      <div class="panel pad" style="flex:1 1 auto;">
+        <div class="ptag"><span class="no">03</span> Konum Doğruluğu <span style="color:var(--muted);font-weight:500;font-size:3.8mm;letter-spacing:.3mm">/ simülasyon</span>
+          <svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div>
+        <p class="cap">Bilgisayar benzetimi (5 beacon, 121 nokta). Çubuk = <b>konum hatası, kısa daha iyi</b>. <b>p95</b> = en kötü %5 hariç en büyük hata. Gürültü artsa da p95 <b>3 m</b> sınırında.</p>
+        <div class="chartwrap">
+          <div class="ylab">↑ Konum hatası (metre)</div>
+          <div class="chart">
+            <div class="gl" style="bottom:28.3%"><span>1 m</span></div>
+            <div class="gl" style="bottom:56.7%"><span>2 m</span></div>
+            <div class="gl" style="bottom:85%"><span>3 m</span></div>
+            <div class="grp"><div class="bar med" style="height:21.2%"><span class="val">0.75</span></div><div class="bar p95" style="height:56.4%"><span class="val">1.99</span></div></div>
+            <div class="grp"><div class="bar med" style="height:16.7%"><span class="val">0.59</span></div><div class="bar p95" style="height:36.5%"><span class="val">1.29</span></div></div>
+            <div class="grp"><div class="bar med" style="height:35.4%"><span class="val">1.25</span></div><div class="bar p95" style="height:85%"><span class="val">3.00</span></div></div>
+          </div>
+          <div class="xlab">
+            <span>Normal<small>az gürültü</small></span>
+            <span>En iyi<small>3 örnek + EWMA</small></span>
+            <span>Zorlu<small>yüksek gürültü</small></span>
+          </div>
+          <div class="leg"><span><i style="background:var(--cyan)"></i><b>Medyan</b> · tipik hata</span><span><i style="background:var(--amber)"></i><b>p95</b> · en kötü %5</span></div>
+        </div>
+      </div>
+
+      <!-- 04 TEMAS yaşam döngüsü flowchart -->
+      <div class="panel pad" style="flex:0 0 auto;">
+        <div class="ptag"><span class="no">04</span> Temas Yaşam Döngüsü
+          <svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg></div>
+        <div class="lc">
+          <div class="lcnode start"><span class="t">▸ KARŞILAŞMA</span><div class="d">İki telefon birbirini görür (anonim kimlik).</div></div>
+          <div class="lcedge">▼</div>
+          <div class="lcnode dec"><span class="t">? BAŞLAR MI</span><div class="d">RSSI <b>&gt; −75 dBm (≈2 m)</b> ve süre <b>≥ 10 sn</b> ise → temas.</div></div>
+          <div class="lcedge">▼</div>
+          <div class="lcnode go"><span class="t">↻ SÜRER</span><div class="d">Her <b>15 sn</b> süre güncellenir (tek kayıt, kopya yok).</div></div>
+          <div class="lcedge">▼</div>
+          <div class="lcnode end"><span class="t">■ BİTER — 3 yol</span>
+            <div class="lcchips">
+              <div class="lcchip"><div class="b">20 sn</div><div class="s">paket yok</div></div>
+              <div class="lcchip"><div class="b">−80 dBm</div><div class="s">uzaklaştı</div></div>
+              <div class="lcchip"><div class="b">60 sn</div><div class="s">bayatladı</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="fnote" style="margin-top:4mm"><b>Dayanıklılık:</b> kısa paket kayıplarında <b>45 sn</b> içinde dönüş aynı temas sayılır → sayaç şişmez.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- 05 SAHNE -->
+  <section class="panel pad">
+    <div class="ptag"><span class="no">05</span> Sahada Nasıl Görünür?
+      <svg class="ic" viewBox="0 0 24 24"><path d="M3 21V9l9-6 9 6v12"/><path d="M3 21h18M9 21v-6h6v6"/></svg></div>
+    <svg class="scene" viewBox="0 0 1180 290" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Oda içinde 4 beacon ve 2 telefon">
+      <defs><marker id="ah" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto"><path d="M0 0L6 3L0 6z" fill="#34d399"/></marker></defs>
+      <rect x="16" y="12" width="1148" height="266" fill="none" stroke="rgba(86,180,240,.4)" stroke-width="1.5"/>
+      <g stroke="rgba(86,180,240,.13)" stroke-width="1"><path d="M260 12V278M500 12V278M740 12V278M920 12V278"/><path d="M16 92H1164M16 160H1164M16 228H1164"/></g>
+      <path d="M16 195v50" stroke="#38bdf8" stroke-width="5"/><text x="26" y="270" font-family="'IBM Plex Mono'" font-size="14" fill="#6f8fab">KAPI</text>
+      <!-- beaconlar -->
+      <g font-family="'IBM Plex Mono'" font-weight="700" font-size="15" fill="#67e8f9">
+        <g opacity=".45" stroke="#38bdf8" fill="none"><circle cx="118" cy="70" r="19" stroke-width="1.5"/><circle cx="118" cy="70" r="31" stroke-width="1"/></g>
+        <path d="M118 60l9 16h-18z" fill="#38bdf8"/><text x="118" y="48" text-anchor="middle">B1</text>
+        <g opacity=".45" stroke="#38bdf8" fill="none"><circle cx="1062" cy="70" r="19" stroke-width="1.5"/><circle cx="1062" cy="70" r="31" stroke-width="1"/></g>
+        <path d="M1062 60l9 16h-18z" fill="#38bdf8"/><text x="1062" y="48" text-anchor="middle">B2</text>
+        <g opacity=".45" stroke="#38bdf8" fill="none"><circle cx="118" cy="228" r="19" stroke-width="1.5"/><circle cx="118" cy="228" r="31" stroke-width="1"/></g>
+        <path d="M118 218l9 16h-18z" fill="#38bdf8"/><text x="118" y="256" text-anchor="middle">B3</text>
+        <g opacity=".45" stroke="#38bdf8" fill="none"><circle cx="1062" cy="228" r="19" stroke-width="1.5"/><circle cx="1062" cy="228" r="31" stroke-width="1"/></g>
+        <path d="M1062 218l9 16h-18z" fill="#38bdf8"/><text x="1062" y="256" text-anchor="middle">B4</text>
+      </g>
+      <!-- trilaterasyon -->
+      <g stroke="#34d399" stroke-width="2" stroke-dasharray="7 5" fill="none" opacity=".85" marker-end="url(#ah)">
+        <path d="M118 70 L452 148"/><path d="M1062 70 L490 146"/><path d="M118 228 L460 168"/>
+      </g>
+      <!-- Telefon A -->
+      <rect x="452" y="126" width="38" height="64" rx="3" fill="#0f2942" stroke="#67e8f9" stroke-width="1.5"/><rect x="457" y="132" width="28" height="42" rx="1" fill="#38bdf8" opacity=".5"/>
+      <text x="471" y="118" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="14" fill="#e3f1fd">Telefon A</text>
+      <circle cx="471" cy="159" r="5.5" fill="#fbbf24" stroke="#081826" stroke-width="1.5"/>
+      <!-- Telefon B -->
+      <rect x="720" y="140" width="38" height="64" rx="3" fill="#0f2942" stroke="#67e8f9" stroke-width="1.5"/><rect x="725" y="146" width="28" height="42" rx="1" fill="#38bdf8" opacity=".5"/>
+      <text x="739" y="132" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="14" fill="#e3f1fd">Telefon B</text>
+      <!-- temas -->
+      <path d="M490 150 Q605 100 720 163" stroke="#fbbf24" stroke-width="2.5" stroke-dasharray="2 6" fill="none"/>
+      <rect x="544" y="96" width="124" height="27" fill="#fbbf24"/><text x="606" y="115" text-anchor="middle" font-family="'IBM Plex Mono'" font-weight="700" font-size="14" fill="#081826">≈ 2 m · TEMAS</text>
+    </svg>
+    <div class="sfoot">
+      <p class="scap"><b>Dört sabit beacon</b> köşelerde; telefon en güçlü <b>3 beacon</b> sinyaliyle <b>trilaterasyonla</b> konumlanır (sarı nokta = tahmin). İki telefon <b>≈2 m</b> yakın + süre eşiğini aşarsa <b>temas</b> kaydedilir.</p>
+      <div class="sleg"><span><i class="bk"></i>Beacon</span><span><i class="ph"></i>Telefon</span><span><i class="tl"></i>Trilaterasyon</span><span><i class="ct"></i>Temas</span></div>
+    </div>
+  </section>
+
+  <!-- BEKLENEN ÇIKTILAR -->
+  <section class="panel outs">
+    <div class="lead">Beklenen Çıktılar<span>// YÖNETİM PANELİ</span></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s-7-4.5-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 11c0 5.5-7 10-7 10z"/></svg></div><div class="ot">Yoğunluk haritası<small>gerçek zamanlı ısı</small></div></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg></div><div class="ot">Bekleme süresi<small>stant bazlı dwell</small></div></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="16" cy="9" r="3"/><path d="M3 19a5 5 0 0 1 10 0M13 19a5 5 0 0 1 8-3.5"/></svg></div><div class="ot">Temas raporu<small>kişi · çift · stant</small></div></div>
+    <div class="out"><div class="oi"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M9.5 13h5M9.5 16.5h5"/></svg></div><div class="ot">PDF / CSV rapor<small>etkinlik sonrası</small></div></div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="foot">
+    <div class="panel kvkk">
+      <div class="t">// GİZLİLİK & KVKK / GDPR</div>
+      <div class="items">
+        <span class="it">Anonim SHA-256</span><span class="it">Kişisel veri yok</span>
+        <span class="it">İki ayrı opt-out</span><span class="it">HTTPS</span><span class="it">14 günde otomatik silme</span>
+      </div>
+    </div>
+    <div class="panel refs">
+      <div class="t">// KAYNAKLAR</div>
+      <ol>
+        <li>J. Röbesaat ve diğ., "An Improved BLE Indoor Localization with Kalman-Based Fusion," <i>Sensors</i>, 17(5):951, 2017.</li>
+        <li>V. Cantón Paterna ve diğ., "A BLE Indoor Positioning System with Weighted Trilateration and Kalman Filtering," <i>Sensors</i>, 17(12):2927, 2017.</li>
+        <li>G. Li ve diğ., "Indoor Positioning Based on Improved RSSI Distance Model and Kalman Filter," <i>IEEE Access</i>, 6:28489-28499, 2018.</li>
+      </ol>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

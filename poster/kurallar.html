@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="tr"><head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--ink:#0E2244;--paper:#F4F1E8;--card:#fff;--blue:#2C6BF0;--blued:#1B4FC4;--coral:#FF6A3D;--teal:#0FB5A6;--line:#D7D0BE;--muted:#5d6473;--ok:#16a34a;--warn:#d97706;
+    --d:'Sora',serif;--b:'IBM Plex Sans',sans-serif;--m:'IBM Plex Mono',monospace;}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:var(--b);color:var(--ink);background:var(--paper);width:1500px;padding:40px;}
+  h1{font-family:var(--d);font-size:34px;font-weight:800;letter-spacing:-.5px;}
+  h1 .s{color:var(--coral);}
+  .sub{color:var(--muted);font-size:15px;margin:6px 0 28px;}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:start;}
+  h2{font-family:var(--d);font-size:20px;font-weight:700;margin:0 0 14px;display:flex;align-items:center;gap:10px;}
+  h2 .n{font-family:var(--m);font-size:13px;background:var(--ink);color:#fff;padding:3px 8px;border-radius:6px;}
+  .flow{display:flex;flex-direction:column;gap:0;}
+  .step{background:var(--card);border:1.5px solid var(--line);border-radius:12px;padding:14px 18px;position:relative;}
+  .step.start{border-color:var(--blue);border-left:6px solid var(--blue);}
+  .step.dec{border-color:var(--warn);border-left:6px solid var(--warn);background:#fffbf3;}
+  .step.ok{border-color:var(--ok);border-left:6px solid var(--ok);background:#f3fbf5;}
+  .step.end{border-color:var(--coral);border-left:6px solid var(--coral);background:#fff5f1;}
+  .step .t{font-weight:700;font-size:15.5px;}
+  .step .d{font-size:13.5px;color:var(--muted);margin-top:3px;line-height:1.45;}
+  .step .tag{font-family:var(--m);font-size:12px;font-weight:700;color:var(--blued);background:rgba(44,107,240,.1);padding:2px 7px;border-radius:5px;white-space:nowrap;}
+  .step.dec .tag{color:#b45309;background:rgba(217,119,6,.12);}
+  .arr{align-self:center;color:var(--muted);font-size:20px;line-height:1;padding:5px 0;font-family:var(--m);}
+  .arr small{font-size:11px;color:var(--muted);}
+  .branch{display:flex;gap:10px;margin:0;}
+  .branch .b{flex:1;font-size:12.5px;padding:7px 10px;border-radius:8px;border:1px dashed var(--line);background:#fff;}
+  .branch .yes{border-color:var(--ok);color:#15803d;}
+  .branch .no{border-color:var(--coral);color:#c2410c;}
+  /* tablo */
+  table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border-radius:10px;overflow:hidden;border:1.5px solid var(--line);}
+  th{background:var(--ink);color:#fff;text-align:left;padding:9px 11px;font-size:12.5px;font-family:var(--m);font-weight:600;}
+  td{padding:8px 11px;border-bottom:1px solid #eee6d6;vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  .k{font-family:var(--m);font-weight:700;color:var(--blued);white-space:nowrap;}
+  .v{font-family:var(--m);font-weight:700;color:var(--coral);white-space:nowrap;text-align:center;}
+  .sec{font-family:var(--d);font-weight:700;font-size:15px;margin:24px 0 10px;color:var(--ink);border-bottom:2px solid var(--line);padding-bottom:5px;}
+  .note{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.5;}
+  .badge{display:inline-block;font-family:var(--m);font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;}
+  .bg-pos{background:rgba(44,107,240,.12);color:var(--blued);}
+  .bg-con{background:rgba(255,106,61,.14);color:#c2410c;}
+  .bg-srv{background:rgba(15,181,166,.14);color:#0c8478;}
+</style></head>
+<body>
+  <h1>Beetinq Sense — <span class="s">Zaman & Eşik Kuralları</span> Akışı</h1>
+  <div class="sub">Tüm süre/sinyal kuralları tek yerde — kod gerçeğiyle (2026-06-07). Kontrol amaçlı: unutulan kural var mı?</div>
+
+  <div class="cols">
+    <!-- SOL: TEMAS YAŞAM DÖNGÜSÜ AKIŞI -->
+    <div>
+      <h2><span class="n">A</span> Temas (Contact) Yaşam Döngüsü</h2>
+      <div class="flow">
+        <div class="step start"><div class="t">📡 Karşı telefon görülür (BLE paketi)</div><div class="d">Her pakette anlık RSSI okunur.</div></div>
+        <div class="arr">↓</div>
+        <div class="step dec"><div class="t">Sinyal yeterince güçlü mü? <span class="tag">RSSI &gt; −80 dBm</span></div>
+          <div class="branch"><div class="b no">HAYIR → paket yok sayılır, encounter beslenmez (uzak telefon).</div><div class="b yes">EVET → encounter açılır/güncellenir.</div></div></div>
+        <div class="arr">↓</div>
+        <div class="step dec"><div class="t">Temas eşiği aşıldı mı? <span class="tag">medyan &gt; −75 & süre ≥ 10 sn</span></div>
+          <div class="branch"><div class="b no">HAYIR → "görüldü" ama henüz temas değil.</div><div class="b yes">EVET → TEMAS başlar, backend'e gider.</div></div></div>
+        <div class="arr">↓ <small>temas aktif</small></div>
+        <div class="step ok"><div class="t">⏱ Süre canlı güncellenir <span class="tag">her 15 sn</span></div><div class="d">Aynı clientEventId → backend upsert (tek kayıt).</div></div>
+        <div class="arr">↓ <small>bitiş koşullarından biri</small></div>
+        <div class="step end"><div class="t">⛔ Temas NASIL biter? (3 yol)</div>
+          <div class="d" style="margin-top:6px">
+            <b>1) Dropout:</b> 20 sn hiç paket gelmezse düşer → <b>45 sn</b> içinde dönerse AYNI temas (resume), sonra YENİ.<br>
+            <b>2) Uzaklaşma (RSSI):</b> son pencerede ≥3 örnek & medyan ≤ −80 → biter.<br>
+            <b>3) Bayatlama:</b> son güçlü rapordan <b>60 sn</b> geçtiyse biter (zayıf sızıntıya karşı).
+          </div></div>
+      </div>
+      <div class="note">Bitince tekrar yaklaşma → <b>yeni temas kaydı</b> (yeni clientEventId).</div>
+
+      <h2 style="margin-top:26px"><span class="n">B</span> Stand Segmentasyonu</h2>
+      <div class="flow">
+        <div class="step start"><div class="t">Temas başlar → stand <b>"—"</b> (boş)</div><div class="d">Gezinti/kısa uğrayış stand yazmaz.</div></div>
+        <div class="arr">↓</div>
+        <div class="step dec"><div class="t">Aynı standda birlikte kalış <span class="tag">≥ 45 sn</span></div>
+          <div class="branch"><div class="b yes">EVET → o andan <b>stand'lı yeni segment</b> açılır.</div><div class="b no">HAYIR → "—" devam.</div></div></div>
+        <div class="arr">↓</div>
+        <div class="step dec"><div class="t">Standdan ayrılma onayı <span class="tag">15 sn farklı konum</span></div>
+          <div class="d">Onaylanınca → tekrar "—" segmenti başlar (fingerprint zıplaması bölmez).</div></div>
+      </div>
+      <div class="note">Sonuç: gezinti "—", her gerçek duruş kendi standına ayrı kayıt. Stand yalnız <b>fingerprint</b>'ten yazılır (trilaterasyondan değil).</div>
+    </div>
+
+    <!-- SAĞ: TAM TABLO -->
+    <div>
+      <h2><span class="n">C</span> Tüm Kurallar — Tam Liste</h2>
+
+      <div class="sec"><span class="badge bg-con">TEMAS</span> &nbsp;cihazda hesaplanır</div>
+      <table>
+        <tr><th>Kural</th><th>Değer</th><th>Ne işe yarar</th></tr>
+        <tr><td class="k">RSSI eşiği (başlama)</td><td class="v">−75 dBm</td><td>≈1.5 m — bundan güçlüyse temas sayılır</td></tr>
+        <tr><td class="k">Süre eşiği (başlama)</td><td class="v">10 sn</td><td>en az bu kadar yan yana</td></tr>
+        <tr><td class="k">Re-report aralığı</td><td class="v">15 sn</td><td>süre canlı güncellenir</td></tr>
+        <tr><td class="k">Evict / zayıf-paket eşiği</td><td class="v">−80 dBm</td><td>bundan zayıf paket encounter beslemez + bitirir</td></tr>
+        <tr><td class="k">Dropout timeout</td><td class="v">20 sn</td><td>paket gelmezse düşer</td></tr>
+        <tr><td class="k">Resume penceresi</td><td class="v">45 sn</td><td>dropout sonrası dönerse aynı temas</td></tr>
+        <tr><td class="k">RSSI-evict min örnek</td><td class="v">3</td><td>medyan anlamlı olsun</td></tr>
+        <tr><td class="k">Bayatlama (stale)</td><td class="v">60 sn</td><td>son güçlü rapordan sonra biter</td></tr>
+        <tr><td class="k">Stand commit (dwell)</td><td class="v">45 sn</td><td>standa yazılması için duruş</td></tr>
+        <tr><td class="k">Stand ayrılma onayı</td><td class="v">15 sn</td><td>jitter segmenti bölmesin</td></tr>
+      </table>
+
+      <div class="sec"><span class="badge bg-pos">KONUM & DWELL</span> &nbsp;cihazda hesaplanır</div>
+      <table>
+        <tr><th>Kural</th><th>Değer</th><th>Ne işe yarar</th></tr>
+        <tr><td class="k">Sinyal kesinti grace</td><td class="v">30 sn</td><td>beacon yokken konum korunur (tek uzun ziyaret)</td></tr>
+        <tr><td class="k">Eşleşmesiz tolerans</td><td class="v">5 olay</td><td>beacon var ama eşleşme yok → taşınma onayı</td></tr>
+        <tr><td class="k">Ranging watchdog</td><td class="v">5 sn</td><td>tarama takılırsa yeniden başlat</td></tr>
+        <tr><td class="k">Oturum recovery boşluğu</td><td class="v">5 dk</td><td>app yeniden açılınca oturum devam sınırı</td></tr>
+        <tr><td class="k">Tarama gücü ayarı</td><td class="v">1 dk</td><td>periyodik adaptif tarama gücü</td></tr>
+        <tr><td class="k">Tarama boşta eşiği</td><td class="v">10 dk</td><td>aktivite yoksa düşük güç</td></tr>
+      </table>
+
+      <div class="sec"><span class="badge bg-srv">SUNUCU</span> &nbsp;NestJS</div>
+      <table>
+        <tr><th>Kural</th><th>Değer</th><th>Ne işe yarar</th></tr>
+        <tr><td class="k">Temporal merge penceresi</td><td class="v">60 sn</td><td>aynı çift + AYNI stand → birleştir (stand-duyarlı)</td></tr>
+        <tr><td class="k">"Şu an aktif" penceresi</td><td class="v">5 dk</td><td>panel canlı sayacı</td></tr>
+        <tr><td class="k">Gelecek-tarih reddi</td><td class="v">5 dk</td><td>cihaz saati hatası koruması</td></tr>
+        <tr><td class="k">Veri saklama (retention)</td><td class="v">14 gün</td><td>her gece 03:00 otomatik silme (KVKK)</td></tr>
+      </table>
+      <div class="note"><b>Histerezis çiftleri:</b> başlama −75 / bitiş −80 (5 dB ölü bant) · stand gir 45 sn / çık 15 sn. Bu çiftler "sınırda titreme"yi (flip-flop) önler.</div>
+    </div>
+  </div>
+</body></html>
