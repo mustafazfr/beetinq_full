@@ -11,10 +11,12 @@ library;
 /// Contact tracing için global UUID. Beacon UUID'sinden farklı olmalı.
 const String kContactTracingUuid = 'DBB2D4FF-40B6-4902-8948-8E8A642CDA0C';
 
-/// "Contact" sayılma eşiği: RSSI değeri bu değerden büyükse (yani sinyal
-/// yeterince güçlüyse — dBm negatif, -80 > -90) ve süre aşıldıysa contact
-/// kabul edilir. -80 dBm ≈ 2 metre.
-const int kContactRssiThreshold = -80;
+/// "Contact" sayılma eşiği: medyan RSSI bu değerden GÜÇLÜYSE (dBm negatif,
+/// -75 > -90) ve süre aşıldıysa contact kabul edilir.
+/// SAHA AYARI (2026-06-07, kullanıcı): -80 fazla gevşekti — BLE duvar/kapıdan
+/// sızdığı için 9m+3 duvarda bile temas sayıyordu. -75'e çekildi (≈1.5 m), yalnız
+/// gerçekten yakın cihazlar temas sayılsın. (Canlı RSSI göstergesiyle ölçüldü.)
+const int kContactRssiThreshold = -75;
 
 /// Contact sayılma süresi (saniye). İki cihaz birbirini görüp bu süre kadar
 /// yan yana durunca temas başlar. Kullanıcı isteği üzerine 60→10sn'ye çekildi
@@ -42,11 +44,16 @@ const int kContactEvictionSeconds = 20;
 const int kContactReReportIntervalSeconds = 15;
 
 /// Evict için RSSI eşiği — tetik eşiğinden (kContactRssiThreshold = -80) DAHA
-/// DÜŞÜK (histerezis). Tetik "> -80"de olur; evict ancak sinyal "-85'in altına"
-/// düşünce teması koparır. Aradaki 5 dB ölü bant, -80 sınırında gezinen cihazda
-/// "tetikle → evict → yeni encounter → tekrar tetikle" flip-flop'unu (ve buna
-/// bağlı reportedContactCount şişmesini) önler. Multi-agent bug-avı bulgusu.
-const int kContactEvictRssiThreshold = -85;
+/// DÜŞÜK (histerezis). Tetik "> -80"de olur; evict ancak sinyal bu değerin
+/// altına düşünce teması koparır. Aradaki ölü bant, -80 sınırında gezinen
+/// cihazda "tetikle → evict → yeni encounter" flip-flop'unu önler.
+///
+/// SAHA AYARI (2026-06-07): -85→-82→-80 evrildi. Trigger -75'e çekilince evict
+/// -80 yapıldı (5 dB histerezis). AYRICA bu eşik zayıf-paket KAPISI olarak da
+/// kullanılır (onEncounterEvent): -80'den zayıf paket bir encounter'ı
+/// OLUŞTURMAZ/SÜRDÜRMEZ → uzaktaki (ör. -96) telefon 20sn'de timeout ile
+/// temizlenir, "uzakta bile temas kaybolmuyor" sorunu çözülür.
+const int kContactEvictRssiThreshold = -80;
 
 /// Resume penceresi (saniye): bir encounter ZAMAN AŞIMIYLA (paket gelmedi →
 /// muhtemelen iPhone dropout) silindikten sonra, bu süre içinde aynı cihaz
@@ -54,12 +61,42 @@ const int kContactEvictRssiThreshold = -85;
 /// firstSeen + reported durumu) devam ettirilir → sayaç şişmez. Dropout'ta
 /// "sürekli contact sayma" sorununu çözer. RSSI ile (uzaklaşma) silinen
 /// encounter'lar resume EDİLMEZ — gerçek ayrılış sayılır.
-const int kContactResumeSeconds = 120;
+///
+/// SAHA AYARI (2026-06-07): 120sn fazla cömertti (kısa ayrılıp dönmeyi de aynı
+/// temas sayıyordu). 45sn'ye çekildi: gerçek BLE dropout'u (8-20sn) hâlâ tek
+/// temasta tutar ama ~45sn+ ayrılık → yeni temas. Asıl "git-gel" düzeltmesi
+/// evict RSSI eşiğinde; bu ek güvence.
+const int kContactResumeSeconds = 45;
 
 /// RSSI ile evict (uzaklaşma) için minimum örnek sayısı. Dropout/seyrek veride
 /// tek-iki zayıf/sıçramalı okuma teması koparmasın diye: son pencerede en az bu
 /// kadar örnek yoksa RSSI-evict UYGULANMAZ (yalnız zaman aşımı evict eder).
 const int kContactMinSamplesForRssiEvict = 3;
+
+/// Bayatlama eşiği (saniye). SAHA BULGUSU (2026-06-07): iki cihaz uzaklaşsa bile
+/// BLE sinyali duvar arkasından zayıf da olsa görülmeye devam edebiliyor; bu
+/// durumda encounter ne timeout ne de RSSI ile siliniyor, RAM'de SONSUZA dek
+/// "canlı" kalıyordu. Sonuç: 15 dk önce fiilen biten bir temas, cihazlar tekrar
+/// yaklaşınca AYNI clientEventId ile re-report edilip eski kaydı "devam ediyor"
+/// diye güncelliyordu. Kural: bir temas son GÜÇLÜ okumadan (re-report) bu kadar
+/// süre geçtiyse SONLANDIRILIR (gerçek ayrılış sayılır, resume edilmez). Backend
+/// temporal-merge penceresiyle (60sn) hizalı: 60sn+ sessizlik → yeni temas.
+const int kContactStaleSeconds = 60;
+
+/// STAND SEGMENTASYONU (kullanıcı tasarımı 2026-06-07). Bir temas, çiftin
+/// birlikte bir standda geçirdiği ONAYLI duruşlara göre parçalara ayrılır:
+///   • Gezinirken / kısa uğrarken → stand "—" (boş) kalır.
+///   • Aynı standda bu süreden uzun birlikte kalınca → o ANDAN İTİBAREN yeni bir
+///     contact (stand bilgili) başlar; önceki "—" segmenti kapanır.
+///   • Standdan ayrılınca tekrar "—" segmenti başlar.
+/// Böylece "gezip en son bir standda durulursa hepsi orada görünür" sorunu
+/// çözülür: gezinti süresi "—", her gerçek duruş kendi standına yazılır.
+const int kStandDwellSeconds = 45;
+
+/// Standdan ayrılma onayı için bekleme (saniye). Fingerprint anlık zıplamaları
+/// stand segmentini erken kapatmasın diye: konum stand'dan bu kadar süre FARKLI
+/// kaldıysa "ayrıldı" sayılır ve "—" segmentine dönülür.
+const int kStandLeaveGraceSeconds = 15;
 
 /// Device hash'ini (hex string) iBeacon major/minor çiftine çevirir.
 ///

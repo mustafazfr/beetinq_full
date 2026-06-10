@@ -765,9 +765,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
             sampleCount: encounter.sampleCount,
             // Re-report'larda sabit anahtar → backend upsert ile tek kayıt güncellenir.
             clientEventId: encounter.clientEventId,
-            // Per-stand: encounter'ın izlendiği stand (rotate'da güncellenir).
-            // Encounter konumu yoksa o anki konuma düş (geriye uyum).
-            locationName: encounter.locationName ?? state.detectedLocation,
+            // Stand segmentasyonu: encounter.locationName segment'in stand'ı.
+            // "—" segmentlerinde null gider (mevcut konuma DÜŞÜLMEZ) → backend
+            // boş stand olarak tutar. Stand ancak yeterince duruşla yazılır.
+            locationName: encounter.locationName,
           ).ignore();
         },
       );
@@ -1179,12 +1180,17 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
 
           // Konum değişti mi?
           if (state.detectedLocation != bestMatchName) {
-            // Per-stand temas: yeni standda aktif encounter'lar yeni temas
-            // açsın (kullanıcı tercihi). bestMatchName null ise konum kaybı,
-            // onLocationChanged null geçer → encounter'lar konumsuz kalır.
+            // Stand segmentasyonu: contact'a YALNIZCA fingerprint stand'ı gider.
+            // BUG FIX (saha 2026-06-07): trilaterasyon fallback'inde bestMatchName
+            // en yakın BEACON etiketi ("1","2") oluyordu; bu, contact stand'ına
+            // "1-2" gibi anlamsız değer yazıyordu. Trilaterasyon/kayıp durumunda
+            // contact konumu "—" (null) kalmalı — sadece gerçek fingerprint
+            // stand'ı networking-hotspot için anlamlı.
+            final contactStand =
+                positionSource == 'fingerprint' ? bestMatchName : null;
             ref
                 .read(contactControllerProvider.notifier)
-                .onLocationChanged(bestMatchName);
+                .onLocationChanged(contactStand);
 
             final exitTime = top3.isNotEmpty
                 ? top3.first.lastSeen

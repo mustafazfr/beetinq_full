@@ -72,8 +72,8 @@ void main() {
   });
 
   group('eşikler', () {
-    test('RSSI eşiği -80 dBm', () {
-      expect(kContactRssiThreshold, -80);
+    test('RSSI eşiği -75 dBm (saha ayarı: -80 fazla gevşekti)', () {
+      expect(kContactRssiThreshold, -75);
     });
 
     test('süre eşiği 10 sn (kullanıcı isteğiyle 60→10)', () {

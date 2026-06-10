@@ -38,13 +38,13 @@ void main() {
       expect(container.read(contactControllerProvider).reportedContactCount, 0);
     });
 
-    test('histerezis: -82 dBm (ölü bant) encounter KORUNUR ve tetiklenmez', () {
+    test('histerezis: -78 dBm (ölü bant) encounter KORUNUR ve tetiklenmez', () {
       final t0 = DateTime(2026, 6, 1, 12, 0, 0);
       for (int s = 0; s <= 12; s++) {
-        ctrl.onEncounterEvent('cc:dd', -82, t0.add(Duration(seconds: s)));
+        ctrl.onEncounterEvent('cc:dd', -78, t0.add(Duration(seconds: s)));
       }
-      // -82: tetik eşiğinin (>-80) altında → tetiklenmez; ama evict eşiğinin
-      // (<=-85) üstünde → silinmez. Encounter hâlâ aktif kalmalı.
+      // -78: tetik eşiğinin (>-75) altında → tetiklenmez; ama evict eşiğinin
+      // (>-80) üstünde → kapıdan geçer, silinmez. Ölü bant (-80..-75) → aktif kalır.
       expect(ctrl.encounters.containsKey('cc:dd'), isTrue);
       expect(container.read(contactControllerProvider).reportedContactCount, 0);
     });
@@ -93,33 +93,33 @@ void main() {
       expect(container.read(contactControllerProvider).reportedContactCount, 2);
     });
 
-    test('RSSI ile uzaklaşıp giden cihaz resume EDİLMEZ → yeni temas (stand sayımı korunur)', () {
+    test('zayıf sinyal (-90, evict eşiği altı) encounter OLUŞTURMAZ — uzak telefon temas değil', () {
+      // SAHA BULGUSU 2026-06-07: uzaktaki (ör. -96) telefon seyrek-zayıf paketlerle
+      // encounter'ı sonsuza dek canlı tutuyordu. Artık evict eşiğinden (-82) zayıf
+      // paket encounter'ı OLUŞTURMAZ/SÜRDÜRMEZ.
       final t0 = DateTime(2026, 6, 1, 12, 0, 0);
-      final triggeredIds = <String>[];
-      ctrl.setContactTrigger((e) => triggeredIds.add(e.clientEventId ?? '?'));
-
-      // Faz 1: güçlü sinyal 12s → contact (report=1).
-      for (int s = 0; s <= 12; s++) {
-        ctrl.onEncounterEvent('cc:33', -60, t0.add(Duration(seconds: s)));
-      }
-      expect(container.read(contactControllerProvider).reportedContactCount, 1);
-      final firstId = triggeredIds.first;
-
-      // Faz 2: aynı cihaz sürekli görünüyor ama sinyal -90 (uzaklaştı). Yeterli
-      // örnek + medyan -85 altı → RSSI-evict (gerçek ayrılış), resume YOK.
-      // (Not: sürekli görüldüğü için evict sonrası zayıf bir encounter olarak
-      // yeniden doğabilir ama RAPORLANMAZ; asıl kontrol Faz 3'teki yeni temas.)
-      for (int s = 13; s <= 25; s++) {
+      for (int s = 0; s <= 30; s++) {
         ctrl.onEncounterEvent('cc:33', -90, t0.add(Duration(seconds: s)));
       }
+      expect(ctrl.encounters.containsKey('cc:33'), isFalse); // zayıf → encounter yok
+      expect(container.read(contactControllerProvider).reportedContactCount, 0);
+    });
 
-      // Faz 3: tekrar yaklaşır → YENİ temas (yeni clientEventId), sayaç 2 olur.
-      for (int s = 26; s <= 40; s++) {
-        ctrl.onEncounterEvent('cc:33', -60, t0.add(Duration(seconds: s)));
+    test('güçlü temas zayıflayınca (uzaklaşma) timeout ile biter', () {
+      final t0 = DateTime(2026, 6, 1, 12, 0, 0);
+      ctrl.setContactTrigger((_) {});
+      // Faz 1: güçlü 12s → contact (report=1, encounter aktif).
+      for (int s = 0; s <= 12; s++) {
+        ctrl.onEncounterEvent('dd:55', -60, t0.add(Duration(seconds: s)));
       }
-      expect(container.read(contactControllerProvider).reportedContactCount, 2);
-      // Yeni temas farklı clientEventId taşımalı (resume edilmediğinin kanıtı).
-      expect(triggeredIds.any((id) => id != firstId), isTrue);
+      expect(container.read(contactControllerProvider).reportedContactCount, 1);
+      // Faz 2: -90 (evict eşiği altı → encounter güncellenmez). _evict çalışsın
+      // diye event akışı sürüyor; son güçlü görülme s=12. >20sn sonra timeout.
+      for (int s = 15; s <= 40; s += 3) {
+        ctrl.onEncounterEvent('dd:55', -90, t0.add(Duration(seconds: s)));
+      }
+      // Güçlü görülmeden 20sn+ geçti → timeout ile aktif encounter'dan düştü.
+      expect(ctrl.encounters.containsKey('dd:55'), isFalse);
     });
 
     test('resume penceresi DIŞINDA dönüş → yeni temas', () {
@@ -142,6 +142,69 @@ void main() {
       }
       final after = container.read(contactControllerProvider).reportedContactCount;
       expect(after, greaterThan(before)); // resume yok → yeni contact sayıldı
+    });
+
+    test('bayatlama: zayıf görülmeye devam eden temas 60sn sonra biter → yeni temas', () {
+      final t0 = DateTime(2026, 6, 1, 12, 0, 0);
+      final ids = <String>[];
+      ctrl.setContactTrigger((e) => ids.add(e.clientEventId ?? '?'));
+
+      // Faz 1: güçlü 12 sn → temas (report=1).
+      for (int s = 0; s <= 12; s++) {
+        ctrl.onEncounterEvent('aa:11', -60, t0.add(Duration(seconds: s)));
+      }
+      expect(container.read(contactControllerProvider).reportedContactCount, 1);
+      final firstId = ids.first;
+
+      // Faz 2: cihaz uzaklaştı ama -78 (ölü bant -80..-75) ile hâlâ GÖRÜLÜYOR —
+      // kapıdan geçer (timeout yok), median -78 <= -75 olduğu için re-report yok.
+      // Son güçlü rapordan 60sn+ geçince BAYATLAMA teması bitirmeli.
+      for (int s = 15; s <= 90; s += 5) {
+        ctrl.onEncounterEvent('aa:11', -78, t0.add(Duration(seconds: s)));
+      }
+
+      // Faz 3: tekrar güçlü → bayatlayan eski temas bittiği için YENİ temas açılır.
+      for (int s = 95; s <= 108; s++) {
+        ctrl.onEncounterEvent('aa:11', -60, t0.add(Duration(seconds: s)));
+      }
+      expect(container.read(contactControllerProvider).reportedContactCount, 2);
+      expect(ids.any((id) => id != firstId), isTrue); // yeni clientEventId
+    });
+  });
+
+  group('ContactController — stand segmentasyonu', () {
+    test('standda yeterince durulunca "—" segmenti kapanır, stand segmenti açılır', () {
+      final t0 = DateTime(2026, 6, 1, 12, 0, 0);
+      final segs = <String?>[]; // her tetiklemede o anki stand
+      ctrl.setContactTrigger((e) => segs.add(e.locationName));
+
+      // Rapor başında konum "A Standı" (sentetik saat ile).
+      ctrl.onLocationChanged('A Standı', t0);
+
+      // 0–60 sn arası güçlü temas. İlk ~45 sn "—", sonra A Standı'na commit.
+      for (int s = 0; s <= 60; s++) {
+        ctrl.onEncounterEvent('aa:11', -60, t0.add(Duration(seconds: s)));
+      }
+
+      // En az bir rapor "—" (null) ile, en az bir rapor "A Standı" ile gitmeli.
+      expect(segs.any((l) => l == null), isTrue, reason: 'ilk segment "—" olmalı');
+      expect(segs.any((l) => l == 'A Standı'), isTrue, reason: 'duruş sonrası stand segmenti');
+      // "—" segmenti stand segmentinden ÖNCE gelmeli.
+      expect(segs.indexWhere((l) => l == null) <
+             segs.indexWhere((l) => l == 'A Standı'), isTrue);
+    });
+
+    test('kısa uğrayış (<45sn) stand yazmaz — "—" olarak kalır', () {
+      final t0 = DateTime(2026, 6, 1, 12, 0, 0);
+      final segs = <String?>[];
+      ctrl.setContactTrigger((e) => segs.add(e.locationName));
+      ctrl.onLocationChanged('Geçiş', t0);
+      // Sadece 30 sn → commit eşiği (45sn) dolmaz.
+      for (int s = 0; s <= 30; s++) {
+        ctrl.onEncounterEvent('bb:22', -60, t0.add(Duration(seconds: s)));
+      }
+      expect(segs.isNotEmpty, isTrue);
+      expect(segs.every((l) => l == null), isTrue); // hep "—"
     });
   });
 }

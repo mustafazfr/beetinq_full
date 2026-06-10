@@ -1179,8 +1179,9 @@ class _ContactIndicator extends ConsumerWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Temas: ${s.activeEncounterCount} cihaz görüldü · '
-                '${s.reportedContactCount} kayıtlı contact',
+                'Temas: ${s.activeEncounterCount} cihaz · '
+                '${s.reportedContactCount} kayıt'
+                '${s.nearestRssi != null ? '  ·  en güçlü: ${s.nearestRssi} dBm' : ''}',
                 style: const TextStyle(fontSize: 12),
               ),
             ),
