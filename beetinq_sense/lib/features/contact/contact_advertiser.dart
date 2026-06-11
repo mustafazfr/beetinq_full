@@ -151,7 +151,10 @@ class ContactAdvertiser {
   }
 
   Future<void> stop() async {
-    if (!_isRunning) return;
+    // BUG FIX (2026-06-11 saha): eski `if (!_isRunning) return;` guard'ı
+    // kaldırıldı — bayrak native gerçekten koptuysa (false ama OS hâlâ
+    // yayında) opt-out yayını FİİLEN durduramıyordu (KVKK ihlali riski).
+    // stop artık koşulsuz native stop dener; zaten durmuşsa no-op.
     try {
       await _peripheral.stop();
       debugPrint('🛑 [ContactAdvertiser] stop');
@@ -163,6 +166,32 @@ class ContactAdvertiser {
   }
 
   bool get isAdvertising => _isRunning;
+
+  /// Native katmana "şu an GERÇEKTEN yayın var mı" diye sorar. [_isRunning]
+  /// bayrağı OS gerçeğinden kopabiliyor (BT toggle, hızlı stop→start, OS'in
+  /// yayını sessizce öldürmesi) — sağlık kontrolü bayrağa değil buna bakar.
+  /// Kanal hatasında bayrağa düşer (en iyi tahmin).
+  Future<bool> verifyAdvertising() async {
+    try {
+      return await _peripheral.isAdvertising;
+    } catch (_) {
+      return _isRunning;
+    }
+  }
+
+  /// SELF-HEALING (2026-06-11 saha bulgusu): BT/opt-out toggle sonrası native
+  /// yayın ölü kalıp _isRunning true kalınca start() "zaten çalışıyor" diye
+  /// no-op dönüyordu → "gösterge yeşil ama yayın yok". Bu metod gerçek durumu
+  /// sorgular; yayın yoksa bayrağı sıfırlayıp baştan başlatır. Periyodik
+  /// sağlık kontrolü (BeaconController._contactHealthCheck) çağırır.
+  Future<bool> ensureStarted(String deviceIdHash) async {
+    if (await verifyAdvertising()) {
+      _isRunning = true; // bayrak ↔ native senkron
+      return true;
+    }
+    _isRunning = false;
+    return start(deviceIdHash);
+  }
 }
 
 final contactAdvertiserProvider = Provider<ContactAdvertiser>(

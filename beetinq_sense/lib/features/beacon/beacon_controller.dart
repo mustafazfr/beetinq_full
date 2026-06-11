@@ -257,6 +257,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   Timer? _statusPollTimer;
   Timer? _rangingWatchdogTimer;
   Timer? _scanPowerTimer;
+  // Contact alt sistemi sağlık kontrolü (2026-06-11): 15sn'de bir native
+  // gerçek durum sorgulanır, ölüyse kendi kendine yeniden başlatılır.
+  Timer? _contactHealthTimer;
+  bool _contactHealthBusy = false;
   // Periyodik fingerprint/beacon senkronu: ikinci telefon, birinci telefon
   // yeni stand kaydederken restart olmadan güncellensin (30 sn'de bir).
   Timer? _syncTimer;
@@ -310,6 +314,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
       // notifier'a erişmeye çalışıyordu.
       _scanPowerTimer?.cancel();
       _scanPowerTimer = null;
+      _contactHealthTimer?.cancel();
+      _contactHealthTimer = null;
       _rangingSub?.cancel();
       _rangingSub = null;
       _monitoringSub?.cancel();
@@ -357,6 +363,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
           contactAdvertising: false,
           contactScanning: false,
         );
+        // Sağlık kontrolü, bilinçli durdurduğumuz advertiser'ı arka planda
+        // DİRİLTMESİN (Apple kuralı). Resume'da yeniden kurulur.
+        _contactHealthTimer?.cancel();
+        _contactHealthTimer = null;
       }
     }
 
@@ -370,6 +380,51 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
   }
 
   /// iOS resumed → advertiser ve scanner'ı opt-in durumuna göre yeniden başlat.
+  /// Contact alt sisteminin (advertiser + scanner) periyodik sağlık kontrolü.
+  /// RAM bayraklarına değil NATIVE gerçeğe bakar (ensureStarted); ölü bulursa
+  /// yeniden başlatır. BT kapalıyken ve opt-out'tayken dokunmaz. Bu, BT
+  /// toggle / settings toggle / OS kill gibi TÜM ölüm yollarını ≤15sn'de
+  /// kendi kendine iyileştirir — tek tek kurtarma path'lerine güvenmek yerine.
+  Future<void> _contactHealthCheck(String reporterDeviceId) async {
+    if (_contactHealthBusy) return; // reentrancy (yavaş native çağrı) koruması
+    _contactHealthBusy = true;
+    try {
+      if (state.bluetoothState == BluetoothState.stateOff) return;
+      final enabled = await SettingsPrefs().isContactEnabled();
+      if (!enabled) return;
+
+      final advOk = await ref
+          .read(contactAdvertiserProvider)
+          .ensureStarted(reporterDeviceId);
+      final scanOk = await ref.read(contactBleScannerProvider).ensureStarted(
+            selfDeviceIdHash: reporterDeviceId,
+            onEncounter: (anonId, rssi, now) {
+              ref
+                  .read(contactControllerProvider.notifier)
+                  .onEncounterEvent(anonId, rssi, now);
+              _lastBeaconActivity = now;
+            },
+          );
+
+      if (state.contactAdvertising != advOk ||
+          state.contactScanning != scanOk) {
+        _log('🩺 Contact sağlık: adv=$advOk scan=$scanOk '
+            '(önceki: ${state.contactAdvertising}/${state.contactScanning})');
+        state = state.copyWith(
+          contactAdvertising: advOk,
+          contactScanning: scanOk,
+          contactError: advOk
+              ? null
+              : ref.read(contactAdvertiserProvider).lastError,
+        );
+      }
+    } catch (e) {
+      _log('contact sağlık kontrolü hatası: $e');
+    } finally {
+      _contactHealthBusy = false;
+    }
+  }
+
   Future<void> _restartContactAdvertiserIfEnabled() async {
     try {
       final enabled = await SettingsPrefs().isContactEnabled();
@@ -398,6 +453,12 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
         contactError: advOk
             ? null
             : ref.read(contactAdvertiserProvider).lastError,
+      );
+      // iOS paused'da iptal edilen sağlık kontrolünü resume'da yeniden kur.
+      _contactHealthTimer?.cancel();
+      _contactHealthTimer = Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => _contactHealthCheck(reporterDeviceId),
       );
     } catch (e) {
       _log('contact advertiser/scanner resume hatası: $e');
@@ -451,6 +512,8 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _rangingWatchdogTimer = null;
     _scanPowerTimer?.cancel();
     _scanPowerTimer = null;
+    _contactHealthTimer?.cancel();
+    _contactHealthTimer = null;
     _syncTimer?.cancel();
     _syncTimer = null;
     _btStateSub?.cancel();
@@ -580,9 +643,16 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
           // adapter dinleyicisiyle kendini sıfırlıyor, advertiser'ın dinleyicisi
           // yok). stop() bayrağı düşürür → BT-on'daki initSdk gerçekten başlatır.
           ref.read(contactAdvertiserProvider).stop().ignore();
-        } else if (btState == BluetoothState.stateOn &&
-            state.errorType == 'bluetooth_off') {
-          state = state.copyWith(error: null, errorType: null);
+        } else if (btState == BluetoothState.stateOn) {
+          // BUG FIX (2026-06-11 saha): eskiden yalnız errorType=='bluetooth_off'
+          // iken initSdk çağrılıyordu; ama ranging watchdog 15sn içinde
+          // errorType'ı 'ranging_stopped' ile EZİYOR → BT-on kurtarması çoğu
+          // zaman hiç koşmuyor, advertiser/scanner ölü kalıyordu (saha testinde
+          // doğrulandı). BT on'a geçişte artık KOŞULSUZ yeniden başlat
+          // (reentrancy'yi _initInProgress guard'ı korur).
+          if (state.errorType == 'bluetooth_off') {
+            state = state.copyWith(error: null, errorType: null);
+          }
           initSdk();
         }
       });
@@ -819,6 +889,19 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
           contactError: null,
         );
       }
+
+      // SAĞLIK KONTROLÜ (2026-06-11 saha bulgusu): BT toggle, opt-out toggle,
+      // hızlı stop→start veya OS'in yayını sessizce öldürmesi sonrası
+      // "gösterge yeşil ama yayın yok" görüldü. 15sn'de bir NATIVE gerçek
+      // durum (isAdvertising / isScanningNow) sorgulanır; ölüyse kendi kendine
+      // yeniden başlatılır, göstergeler gerçeği yansıtır. Timer contact
+      // kapalıyken de kurulur (tick içinde enabled kontrolü var) — kullanıcı
+      // settings'ten açarsa da sağlık döngüsü devreye girer.
+      _contactHealthTimer?.cancel();
+      _contactHealthTimer = Timer.periodic(
+        const Duration(seconds: 15),
+        (_) => _contactHealthCheck(reporterDeviceId),
+      );
     } catch (e, st) {
       _log('initSdk ERROR: $e\n$st');
       state = state.copyWith(error: e.toString());
@@ -1439,6 +1522,10 @@ class BeaconController extends Notifier<BeaconState> with WidgetsBindingObserver
     _rangingWatchdogTimer = null;
     _scanPowerTimer?.cancel();
     _scanPowerTimer = null;
+    // ÖNEMLİ: sağlık kontrolü burada da iptal edilmeli — yoksa 15sn sonra
+    // bilerek durdurduğumuz advertiser/scanner'ı diriltir (opt-out ihlali).
+    _contactHealthTimer?.cancel();
+    _contactHealthTimer = null;
     _syncTimer?.cancel();
     _syncTimer = null;
     _isLowPowerMode = false;

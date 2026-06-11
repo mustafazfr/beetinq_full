@@ -162,6 +162,31 @@ class ContactBleScanner {
     }
   }
 
+  /// SELF-HEALING (2026-06-11 saha bulgusu): [_running] bayrağı OS gerçeğinden
+  /// kopabiliyor (adapter listener her durumu yakalayamayabilir). Native
+  /// gerçekten tarıyorsa true; tarama ölmüşse state sıfırlanıp temiz start
+  /// yapılır. Periyodik sağlık kontrolü çağırır.
+  Future<bool> ensureStarted({
+    required String selfDeviceIdHash,
+    required void Function(String anonId, int rssi, DateTime now) onEncounter,
+  }) async {
+    bool scanning = false;
+    try {
+      scanning = FlutterBluePlus.isScanningNow;
+    } catch (_) {}
+    if (_running && scanning) return true; // sağlıklı
+    // Bayrak ↔ OS uyumsuz → temiz başlangıç (yarım kalmış taramayı da kapat).
+    debugPrint('$_logTag sağlık: _running=$_running scanning=$scanning → restart');
+    _running = false;
+    await _sub?.cancel();
+    _sub = null;
+    if (scanning) await _safeStopScan();
+    return start(
+      selfDeviceIdHash: selfDeviceIdHash,
+      onEncounter: onEncounter,
+    );
+  }
+
   Future<void> stop() async {
     // Adapter dinleyicisini her durumda temizle (BT-off'ta _running düşmüş
     // olabilir; o yüzden _running guard'ının dışında).

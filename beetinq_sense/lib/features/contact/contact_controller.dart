@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
@@ -111,7 +113,30 @@ class ContactController extends Notifier<ContactState> {
 
   @override
   ContactState build() {
+    // KALP ATIŞI (2026-06-11 saha bulgusu): _evict yalnız paket gelince
+    // çalışıyordu; tam RF sessizliğinde (2 cihazlı demo — karşı taraf BT
+    // kapattı/uzaklaştı) encounter'lar ve UI sayacı donuk kalıyordu
+    // ("Temas: 1 cihaz" hayaleti). 5sn'lik tick, paket gelmese de mevcut
+    // timeout/stale/RSSI evict'leri işletir. Karar mantığı DEĞİŞMEDİ —
+    // sadece _evict artık düzenli çalışıyor.
+    final heartbeat =
+        Timer.periodic(const Duration(seconds: 5), (_) => _onHeartbeat());
+    ref.onDispose(heartbeat.cancel);
     return const ContactState();
+  }
+
+  void _onHeartbeat() {
+    if (_encounters.isEmpty && _resumable.isEmpty) return;
+    _evict(DateTime.now());
+    if (state.activeEncounterCount != _encounters.length) {
+      state = ContactState(
+        activeEncounterCount: _encounters.length,
+        reportedContactCount: state.reportedContactCount,
+        lastContactAt: state.lastContactAt,
+        // Aktif encounter kalmadıysa bayat "en güçlü" göstergesini de temizle.
+        nearestRssi: _encounters.isEmpty ? null : state.nearestRssi,
+      );
+    }
   }
 
   /// 1.5.7 veya test kodu tarafından set edilir.
