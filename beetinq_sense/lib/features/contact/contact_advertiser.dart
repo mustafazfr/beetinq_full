@@ -118,7 +118,19 @@ class ContactAdvertiser {
       // iOS bu flag'ten etkilenmez (CoreBluetooth kendi yönetir).
       final state = await _peripheral.start(
         advertiseData: data,
-        advertiseSettings: AdvertiseSettings(advertiseSet: false),
+        advertiseSettings: AdvertiseSettings(
+          advertiseSet: false,
+          // BUG FIX (2026-06-11 — KRİTİK saha bulgusu): plugin'in default
+          // timeout'u 400 MİLİSANİYE! Android her yayını 400ms sonra OS
+          // seviyesinde kendiliğinden kapatıyordu (dumpsys bluetooth_manager:
+          // 8/8 oturum, hepsi 379-411ms) ve plugin bunu state'ine işlemediği
+          // için isAdvertising true kalıyordu → "gösterge yeşil ama yayın yok".
+          // Android→iPhone yönü bu yüzden HİÇ çalışmamıştı (iPhone→Android
+          // yönü iOS'un sürekli yayını sayesinde çalışıyordu, asimetri fark
+          // edilmedi). timeout: 0 = süresiz yayın (Android API: "0 disables
+          // the time limit"). iOS bu alanı zaten yok sayar.
+          timeout: 0,
+        ),
       );
       _lastStartState = state;
       debugPrint('📡 [ContactAdvertiser] start → $state');
